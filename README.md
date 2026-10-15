@@ -88,17 +88,6 @@ LOCAL_MODEL_URL="http://localhost:8080/v1"
 LOCAL_MODEL_NAME="local-model-name"
 ```
 
-```env
-# Cloud model
-OPENAI_API_KEY="your-model-name"
-CLOUD_MODEL_NAME="model-name"
-CLOUD_BASE_URL = "cloud-base-url"
-
-# Local model
-LOCAL_MODEL_URL="http://localhost:8080/v1"
-LOCAL_MODEL_NAME="local-model-name"
-```
-
 ## Running AGEX
 
 Start your local model server first and ensure that its API is accessible. (If using local models)
