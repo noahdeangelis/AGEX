@@ -79,7 +79,7 @@ Create a `.env` file in the project root if the default one isn't there and conf
 
 ```env
 # Cloud model
-OPENAI_API_KEY="your-model-name"
+OPENAI_API_KEY="your-API-key"
 CLOUD_MODEL_NAME="model-name"
 CLOUD_BASE_URL = "cloud-base-url"
 
