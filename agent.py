@@ -5,9 +5,37 @@ from openai import OpenAI
 from tools import tool_registry
 import requests
 from platformdirs import user_desktop_dir
+import time
+from openai import APIStatusError
 
 BLUE = "\033[94m"
+YELLOW = "\033[38;5;221m"
+RED = "\033[38;5;203m"
 RESET = "\033[0m"
+
+def get_error_text(error):
+    """Extract error details for rate-limit detection."""
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        return json.dumps(body).lower()
+    return str(error).lower()
+
+
+def is_tpm_rpm_limit(error_text):
+    is_tpm = ("tokens per minute" in error_text or "token per minute" in error_text)
+    is_rpm = ("requests per minute" in error_text or "request per minute" in error_text)
+    return is_tpm or is_rpm
+
+def is_usage_exhausted(error_text):
+    texts = (
+        "tokens per day",
+        "requests per day",
+        "insufficient_quota",
+        "quota_exceeded",
+        "usage limit",
+        "daily limit",
+    )
+    return any(possible in error_text for possible in texts)
 
 load_dotenv()
 
@@ -120,16 +148,88 @@ class AIAgent:
         self.system_prompt = SYSTEM
         # self.system_prompt = f"You are a helpful AI Assistant with access to tools. The user is located in {get_location()}. Always use tools when required. With web_search you can find relevent links. Then pick the most relevent / trustworthy link and use the site_checker tool to fetch the content of the page."
 
+        self.primary = ""
+        self.backup = ""
+        self.local = ""
+
+        self.current_model = 0 # 0 is primary by default. Used to carry primary vs backup between messages
+
         if self.mode == "local":
             self.client = OpenAI(base_url=os.getenv("LOCAL_MODEL_URL"))  # A local server should be running
-            self.model = os.getenv("LOCAL_MODEL_NAME")
+            self.local = os.getenv("LOCAL_MODEL_NAME")
         elif self.mode == "openai":
             self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url=os.getenv("CLOUD_BASE_URL"))
-            self.model = os.getenv("CLOUD_MODEL_NAME")
+            self.primary = os.getenv("CLOUD_MODEL_NAME")
         else:
             raise ValueError("Invalid mode. Choose 'local' or 'openai'.")
 
+        # We use seperate clients for primary vs backup because they user might use a different provider or API key for their backup
+        self.backup = os.getenv("BACKUP_CLOUD_MODEL_NAME")
+        self.backup_url = os.getenv("BACKUP_CLOUD_BASE_URL")
+        self.backup_api = os.getenv("BACKUP_OPENAI_API_KEY")
+
+        # Only create the backup client if the backup is configured
+        # If the text are literally set to "None" then don't use it
+        if self.backup and self.backup_url and self.backup_api and self.backup != "None" and self.backup_url != "None" and self.backup_api != "None":
+            self.backup_client = OpenAI(api_key=self.backup_api, base_url=self.backup_url)
+        else:
+            self.backup_client = None
+            self.backup = None
+
         self.history.append({"role": "system", "content": self.system_prompt})
+
+    # TODO: Convert the unnecessary arg values into self. internally
+    # TODO: Add type specifications
+    def get_response(self, primary, backup, backup_client, local, mode, max_retries, client, **kwargs):
+        """Calls a request function and intercepts token errors (code 429)"""
+
+        # If nothing is set up correctly
+        if primary is None and mode == "openai":
+            raise ValueError("CLOUD_MODEL_NAME is not configured.")
+        if local is None and mode == "local":
+            raise ValueError("LOCAL model not configured.")
+
+        # Make a list of models available
+        # Backups are cloud models.
+        # TODO: Add .env argument to add a final backup being the local model
+        models = [primary] if mode == "openai" else [local]
+        if backup is not None:
+            models.append(backup)
+
+        for model_idx, model in enumerate(models[self.current_model:], self.current_model):
+            attempt = 0 # Track attempts tpm/rpm retries before giving up
+            max_tpm_retries = max_retries
+
+            while True:
+                try:
+                    response = client.chat.completions.create(model=model, **kwargs) if model_idx == 0 else backup_client.chat.completions.create(model=model, **kwargs)
+                    return response
+                
+                except APIStatusError as e:
+                    if e.status_code != 429: # TPM, RPM, Usage errors
+                        raise
+
+                    error_text = get_error_text(e)
+                    if is_tpm_rpm_limit(error_text):
+                        if attempt >= max_tpm_retries:
+                            raise
+
+                        attempt += 1
+                        print(f"\n{YELLOW}[AGEX] TPM/RPM limit on {model}. Waiting 60 seconds before continuing. Attempt {attempt}/{max_tpm_retries}{RESET}")
+                        time.sleep(60)
+                        continue
+
+                    # Switch models if usage limit is hit
+                    if is_usage_exhausted(error_text):
+                        if model_idx + 1 < len(models):
+                            print(f"\n{YELLOW}[AGEX]: Usage limit reached on {model}. Switching to backup {models[model_idx+1]}{RESET}")
+                            self.current_model += 1 # So it carries between messages
+                            break
+
+                        print(f"\n{RED}[AGEX] All configured models have exhuasted their usage limits.{RESET}")
+                        raise
+                raise # Unhandled error
+        raise RuntimeError("No model returned a response.") # Just in case
 
     def chat(self, user_message: str):
         """
@@ -140,14 +240,8 @@ class AIAgent:
         self.history.append({"role": "user", "content": user_message})
 
         while True:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=self.history,
-                tools=tool_registry.get_schemas(),
-                tool_choice="auto",  # Let the model decide whether to use a tool or not
-                temperature=0.2,
-                # max_tokens=8192,
-            )
+            # Will get the response and auto switch from Primary to Backup or to Local
+            response = self.get_response(self.primary or None, self.backup or None, self.backup_client, self.local or None, self.mode, 5, self.client, messages=self.history, tools=tool_registry.get_schemas(), tool_choice="auto", temperature=0.2)
 
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls or []
