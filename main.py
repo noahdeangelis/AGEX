@@ -1,9 +1,13 @@
 from agent import AIAgent
+import platform
+import subprocess
 import mod
 
 YELLOW = "\033[1;33m"
 CYAN = "\033[36m"
 RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[38;5;203m"
 
 if __name__ == "__main__":
     print("--- AGEX ---")
@@ -30,7 +34,15 @@ if __name__ == "__main__":
             user_message = input(f"{YELLOW}You: ").strip()
             print(f"{RESET}", end="")
 
-            if user_message.lower() in {"exit", "quit"}:
+            # Manage exiting and basic commands.
+            if user_message.lower() in {"exit", "quit", "/clear"}:
+                if user_message.lower() == "/clear":
+                        current_os = platform.system()
+                        if current_os == "Windows":
+                            subprocess.run("cls", shell=True)
+                        else:
+                            subprocess.run("clear", shell=True)
+                        continue
                 print("Goodbye!")
                 break
 
@@ -42,6 +54,8 @@ if __name__ == "__main__":
                 print(f"{CYAN}AGEX:{RESET} {response}\n")
             except Exception as e:
                 print(f"Error: {e}\n")
+            except KeyboardInterrupt:
+                print(f"{RED}Model stopped.{RESET}")
 
     except Exception as e:
         print(f"Failed to start local agent: {e}")
