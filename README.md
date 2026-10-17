@@ -16,7 +16,7 @@ Simply configure the default .env file provided to connect local or cloud models
 ## Features
 
 ### Best Features
-- **Backup model** - Automatically switches to a configured backup model when the primary model exhausts its usage limits.
+- **Backup models** - Automatically switches to configured backups model when the primary model / other backups exhaust their usage limits. You can have as many as you want.
 - **TPM limit detection** - Detects TPM/RPM rate limits, waits 60 seconds, and retries the request automatically without interrupting the model (5 retries).
 
 ### Casual Features
