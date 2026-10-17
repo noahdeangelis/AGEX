@@ -297,8 +297,6 @@ class AIAgent:
                     self.current_model = model_idx
                     self.client = client
 
-                    print(model_idx)
-
                     return response
                 
                 except APIStatusError as e:
