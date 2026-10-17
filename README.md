@@ -103,7 +103,7 @@ CLOUD_MODEL_NAME="model-name"
 CLOUD_BASE_URL = "base-url"
 
 # Cloud backup model
-BACKUP_1_OPENAI_API_KEY="your-backup-api-key"
+BACKUP_1_API_KEY="your-backup-api-key"
 BACKUP_1_MODEL_NAME="model-name"
 BACKUP_1_BASE_URL = "base-url"
 
