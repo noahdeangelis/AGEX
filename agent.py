@@ -7,6 +7,7 @@ import requests
 from platformdirs import user_desktop_dir
 import time
 from openai import APIStatusError
+from tokenizer import count_messages, INPUT_TOKEN_BUDGET
 
 BLUE = "\033[94m"
 YELLOW = "\033[38;5;221m"
@@ -28,6 +29,39 @@ def is_usage_exhausted(error_text):
         "daily limit",
     )
     return any(possible in error_text for possible in texts)
+
+
+def token_count(messages, tools):
+    return count_messages(messages, tools)
+    
+# Needed to limit to correct ctx size / fit in TPM for cloud models
+def trim_history(messages, tools=None):
+    """Remove oldest messages until history fits the token budget."""
+
+    messages = messages.copy()
+    original_tokens = count_messages(messages, tools)
+    removed = 0
+
+    while count_messages(messages, tools) > INPUT_TOKEN_BUDGET:
+        # Find the oldest non system message.
+        index = next(
+            (
+                i for i, message in enumerate(messages)
+                if message.get("role") != "system"
+            ),
+            None
+        )
+
+        if index is None:
+            break
+
+        messages.pop(index)
+        removed += 1
+
+    if removed:
+        print(f"{YELLOW}[AGEX] Trimmed {removed} old messages ({original_tokens} -> {count_messages(messages, tools)} tokens).{RESET}")
+
+    return messages
 
 load_dotenv()
 
@@ -298,9 +332,9 @@ class AIAgent:
                     self.client = client
 
                     return response
-                
+
                 except APIStatusError as e:
-                    if e.status_code != 429: # TPM, RPM, Usage errors
+                    if e.status_code != 429: # TPM, RPM, Usage errors.
                         raise
 
                     error_text = str(e).lower()
@@ -336,10 +370,15 @@ class AIAgent:
 
         while True:
             # Will get the response and auto switch from Primary to Backup or to Local
+
+            tools = tool_registry.get_schemas()
+
+            self.history = trim_history(self.history, tools=tools)
+
             response = self.get_response(
                 max_retries=5,
                 messages=self.history,
-                tools=tool_registry.get_schemas(),
+                tools=tools,
                 tool_choice="auto",
                 temperature=0.2,
             )
