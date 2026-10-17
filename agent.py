@@ -13,14 +13,6 @@ YELLOW = "\033[38;5;221m"
 RED = "\033[38;5;203m"
 RESET = "\033[0m"
 
-def get_error_text(error):
-    """Extract error details for rate-limit detection."""
-    body = getattr(error, "body", None)
-    if isinstance(body, dict):
-        return json.dumps(body).lower()
-    return str(error).lower()
-
-
 def is_tpm_rpm_limit(error_text):
     is_tpm = ("tokens per minute" in error_text or "token per minute" in error_text)
     is_rpm = ("requests per minute" in error_text or "request per minute" in error_text)
@@ -178,6 +170,37 @@ class AIAgent:
 
         self.history.append({"role": "system", "content": self.system_prompt})
 
+    def get_models(self):
+        """
+        Returns models of the format: [(model_name, is_primary, is_local, is_backup, backup_no or None)] of size n models
+        Backup count starts from 1.
+        """
+        models = []
+
+        # Return models with el format
+        if self.primary != "": models.append((self.primary, True, False, False, None))
+        if self.backup != "": models.append((self.backup, False, False, True, 1))
+        if self.local != "": models.append((self.local, False, True, False, None))
+        return models
+
+    def set_model(self, model_name):
+        """Switch the active model by name without clearing conversation history."""
+
+        for name, is_primary, is_local, is_backup, backup_no in self.get_models():
+            if name == model_name:
+                self.current_model = (
+                    2 if is_local else
+                    1 if is_backup else
+                    0
+                )
+
+                print(f"[AGEX] Switched to {name}")
+                return True
+
+        print(f"[AGEX] Model '{model_name}' is not configured.")
+        return False
+
+
     # TODO: Convert the unnecessary arg values into self. internally
     # TODO: Add type specifications
     def get_response(self, primary, backup, backup_client, local, mode, max_retries, client, **kwargs):
@@ -209,7 +232,7 @@ class AIAgent:
                     if e.status_code != 429: # TPM, RPM, Usage errors
                         raise
 
-                    error_text = get_error_text(e)
+                    error_text = str(e).lower()
                     if is_tpm_rpm_limit(error_text):
                         if attempt >= max_tpm_retries:
                             raise

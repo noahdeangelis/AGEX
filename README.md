@@ -38,6 +38,14 @@ Simply configure the default .env file provided to connect local or cloud models
 
 > Note: Any file or shell operations uses a confirm prompt allowing you to stop any edits, creations, shell commands, etc
 **This confirm prompt can be implemented into custom tools too.**
+
+### Commands
+
+- **/quit** - Exit the program.
+- **/exit** - Exit the program.
+- **/clear** - Clear the terminal.
+- **/model** - Switch between Primary, Backups and Local on the fly.
+
 ## Requirements
 
 - A language model compatible with the OpenAI API style
