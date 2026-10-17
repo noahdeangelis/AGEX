@@ -136,37 +136,107 @@ class AIAgent:
         """
         self.mode = mode.lower()
         self.history = []
-        # TODO: Add a system prompt to guide the AI's behavior
         self.system_prompt = SYSTEM
-        # self.system_prompt = f"You are a helpful AI Assistant with access to tools. The user is located in {get_location()}. Always use tools when required. With web_search you can find relevent links. Then pick the most relevent / trustworthy link and use the site_checker tool to fetch the content of the page."
 
-        self.primary = ""
-        self.backup = ""
-        self.local = ""
-
-        self.current_model = 0 # 0 is primary by default. Used to carry primary vs backup between messages
-
-        if self.mode == "local":
-            self.client = OpenAI(base_url=os.getenv("LOCAL_MODEL_URL"))  # A local server should be running
-            self.local = os.getenv("LOCAL_MODEL_NAME")
-        elif self.mode == "openai":
-            self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url=os.getenv("CLOUD_BASE_URL"))
-            self.primary = os.getenv("CLOUD_MODEL_NAME")
-        else:
+        if self.mode not in ("local", "openai"):
             raise ValueError("Invalid mode. Choose 'local' or 'openai'.")
 
-        # We use seperate clients for primary vs backup because they user might use a different provider or API key for their backup
-        self.backup = os.getenv("BACKUP_CLOUD_MODEL_NAME")
-        self.backup_url = os.getenv("BACKUP_CLOUD_BASE_URL")
-        self.backup_api = os.getenv("BACKUP_OPENAI_API_KEY")
+        # If any local config
+        self.local = os.getenv("LOCAL_MODEL_NAME")
+        self.local_url = os.getenv("LOCAL_MODEL_URL")
 
-        # Only create the backup client if the backup is configured
-        # If the text are literally set to "None" then don't use it
-        if self.backup and self.backup_url and self.backup_api and self.backup != "None" and self.backup_url != "None" and self.backup_api != "None":
-            self.backup_client = OpenAI(api_key=self.backup_api, base_url=self.backup_url)
-        else:
-            self.backup_client = None
-            self.backup = None
+        self.primary = ""
+        self.backup = None
+        self.backup_client = None
+
+        # Every entry contains its own client and model configuration.
+        self.model_configs = []
+
+        if self.mode == "openai":
+            primary = os.getenv("CLOUD_MODEL_NAME")
+            primary_url = os.getenv("CLOUD_BASE_URL")
+            primary_api = os.getenv("OPENAI_API_KEY")
+
+            if not primary or not primary_url or not primary_api:
+                raise ValueError("CLOUD_MODEL_NAME, CLOUD_BASE_URL and OPENAI_API_KEY must be configured for cloud mode.")
+
+            self.model_configs.append({
+                "name": primary,
+                "model": primary,
+                "client": OpenAI(api_key=primary_api, base_url=primary_url),
+                "is_primary": True,
+                "is_local": False,
+                "is_backup": False,
+                "backup_no": None,
+            })
+
+        # Discover any backups
+        backup_no = 1 # Start at 1
+
+        while True:
+            model = os.getenv(f"BACKUP_{backup_no}_MODEL_NAME")
+            if not model: # Doesn't exist
+                break
+
+            base_url = os.getenv(f"BACKUP_{backup_no}_BASE_URL")
+            api_key = os.getenv(f"BACKUP_{backup_no}_API_KEY")
+
+            if not base_url or not api_key:
+                print(f"{YELLOW}[AGEX] Skipping incomplete backup {backup_no} config.{RESET}")
+                backup_no += 1
+                continue
+
+            self.model_configs.append({
+                "name": model,
+                "model": model,
+                "client": OpenAI(api_key=api_key, base_url=base_url),
+                "is_primary": False,
+                "is_local": False,
+                "is_backup": True,
+                "backup_no": backup_no,
+            })
+
+            print(f"{BLUE}[AGEX]{RESET} Registered backup {backup_no}: {model}")
+            backup_no += 1
+
+        # Configure the local model (if any)
+        if self.local and self.local_url:
+            self.local_client = OpenAI(base_url=self.local_url) # No API key
+
+            # Local mode uses the local model as the primary model.
+            # For now you can only have Local vs Cloud primarys.
+            # You can always use a backup or more if you want cloud and local run.
+            if self.mode == "local":
+                self.model_configs.insert(0, {
+                    "name": self.local,
+                    "model": self.local,
+                    "client": self.local_client,
+                    "is_primary": True,
+                    "is_local": True,
+                    "is_backup": False,
+                    "backup_no": None,
+                })
+
+            # In cloud mode you can use the local model as the final fallback/backup after all cloud backups hit their limits.
+            elif os.getenv("LOCAL_MODEL_FALLBACK", "false").lower() in ("true", "1", "yes"):
+                self.model_configs.append({
+                    "name": self.local,
+                    "model": self.local,
+                    "client": self.local_client,
+                    "is_primary": False,
+                    "is_local": True,
+                    "is_backup": False,
+                    "backup_no": None,
+                })
+
+        # This should never occur
+        if not self.model_configs:
+            raise ValueError("No models are configured.")
+
+        self.current_model = 0
+        self.client = self.model_configs[0]["client"]
+        self.backup = self.model_configs[1]["model"] if len(self.model_configs) > 1 else None
+        self.backup_client = self.model_configs[1]["client"] if len(self.model_configs) > 1 else None
 
         self.history.append({"role": "system", "content": self.system_prompt})
 
@@ -175,57 +245,60 @@ class AIAgent:
         Returns models of the format: [(model_name, is_primary, is_local, is_backup, backup_no or None)] of size n models
         Backup count starts from 1.
         """
-        models = []
-
-        # Return models with el format
-        if self.primary != "": models.append((self.primary, True, False, False, None))
-        if self.backup != "": models.append((self.backup, False, False, True, 1))
-        if self.local != "": models.append((self.local, False, True, False, None))
-        return models
+        return [
+            (
+                config["model"],
+                config["is_primary"],
+                config["is_local"],
+                config["is_backup"],
+                config["backup_no"],
+            )
+            for config in self.model_configs
+        ]
 
     def set_model(self, model_name):
-        """Switch the active model by name without clearing conversation history."""
+        """Switch the active model without clearing conversation history."""
 
-        for name, is_primary, is_local, is_backup, backup_no in self.get_models():
-            if name == model_name:
-                self.current_model = (
-                    2 if is_local else
-                    1 if is_backup else
-                    0
-                )
+        for index, config in enumerate(self.model_configs):
+            if config["model"] == model_name:
+                self.current_model = index
+                self.client = config["client"]
 
-                print(f"[AGEX] Switched to {name}")
+                print(f"{BLUE}[AGEX]{RESET} Switched to {model_name}")
                 return True
 
-        print(f"[AGEX] Model '{model_name}' is not configured.")
+        print(f"{RED}[AGEX] Model '{model_name}' is not configured.{RESET}")
         return False
 
-
-    # TODO: Convert the unnecessary arg values into self. internally
     # TODO: Add type specifications
-    def get_response(self, primary, backup, backup_client, local, mode, max_retries, client, **kwargs):
+    def get_response(self, max_retries=5, **kwargs):
         """Calls a request function and intercepts token errors (code 429)"""
 
         # If nothing is set up correctly
-        if primary is None and mode == "openai":
-            raise ValueError("CLOUD_MODEL_NAME is not configured.")
-        if local is None and mode == "local":
-            raise ValueError("LOCAL model not configured.")
+        if not self.model_configs:
+            raise RuntimeError("No models are configured.")
+        # Crazy bugs if this triggers
+        if not 0 <= self.current_model < len(self.model_configs):
+            raise RuntimeError("The selected model index is invalid.")
 
-        # Make a list of models available
-        # Backups are cloud models.
-        # TODO: Add .env argument to add a final backup being the local model
-        models = [primary] if mode == "openai" else [local]
-        if backup is not None:
-            models.append(backup)
+        for model_idx in range(self.current_model, len(self.model_configs)):
+            config = self.model_configs[model_idx]
 
-        for model_idx, model in enumerate(models[self.current_model:], self.current_model):
+            model = config["model"]
+            client = config["client"]
+
             attempt = 0 # Track attempts tpm/rpm retries before giving up
-            max_tpm_retries = max_retries
 
             while True:
                 try:
-                    response = client.chat.completions.create(model=model, **kwargs) if model_idx == 0 else backup_client.chat.completions.create(model=model, **kwargs)
+                    response = client.chat.completions.create(model=model, **kwargs)
+
+                    # Remember the model that successfully responded.
+                    self.current_model = model_idx
+                    self.client = client
+
+                    print(model_idx)
+
                     return response
                 
                 except APIStatusError as e:
@@ -234,19 +307,20 @@ class AIAgent:
 
                     error_text = str(e).lower()
                     if is_tpm_rpm_limit(error_text):
-                        if attempt >= max_tpm_retries:
+                        if attempt >= max_retries:
                             raise
 
                         attempt += 1
-                        print(f"\n{YELLOW}[AGEX] TPM/RPM limit on {model}. Waiting 60 seconds before continuing. Attempt {attempt}/{max_tpm_retries}{RESET}")
+                        print(f"\n{YELLOW}[AGEX] TPM/RPM limit on {model}. Waiting 60 seconds before continuing. Attempt {attempt}/{max_retries}{RESET}")
                         time.sleep(60)
                         continue
 
                     # Switch models if usage limit is hit
                     if is_usage_exhausted(error_text):
-                        if model_idx + 1 < len(models):
-                            print(f"\n{YELLOW}[AGEX]: Usage limit reached on {model}. Switching to backup {models[model_idx+1]}{RESET}")
-                            self.current_model += 1 # So it carries between messages
+                        if model_idx + 1 < len(self.model_configs):
+                            next_config = self.model_configs[model_idx + 1]
+                            print(f"\n{YELLOW}[AGEX]: Usage limit reached on {model}. Switching to {next_config['model']}{RESET}")
+                            self.current_model = model_idx + 1 # So it carries between messages
                             break
 
                         print(f"\n{RED}[AGEX] All configured models have exhuasted their usage limits.{RESET}")
@@ -264,8 +338,13 @@ class AIAgent:
 
         while True:
             # Will get the response and auto switch from Primary to Backup or to Local
-            response = self.get_response(self.primary or None, self.backup or None, self.backup_client, self.local or None, self.mode, 5, self.client, messages=self.history, tools=tool_registry.get_schemas(), tool_choice="auto", temperature=0.2)
-
+            response = self.get_response(
+                max_retries=5,
+                messages=self.history,
+                tools=tool_registry.get_schemas(),
+                tool_choice="auto",
+                temperature=0.2,
+            )
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls or []
 
