@@ -395,7 +395,7 @@ class AIAgent:
                 print(f"{YELLOW}[AGEX] TOOL FAILED: MALFORMED JSON. Retrying...{RESET}")
 
                 self.history.append({
-                    "role": "user",
+                    "role": "tool",
                     "content": (
                         "TOOL FAILED: MALFORMED JSON. "
                         "Your previous tool call contained invalid JSON and was rejected. "

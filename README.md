@@ -46,6 +46,7 @@ Simply configure the default .env file provided to connect local or cloud models
 - **/exit** - Exit the program.
 - **/clear** - Clear the terminal.
 - **/model** - Switch between Primary, Backups and Local on the fly.
+- **/build** - Build, run, and test full apps by itself. E.g. /build make a modern todo list in HTML on my desktop in todo folder. (prepends prompt onto user message)
 
 ## Requirements
 
@@ -125,6 +126,12 @@ LOCAL_MODEL_NAME="local-model-name"
 # Use the local server if all backups run out
 # Run the local model as a final backup basically (server must be running and this be set to true)
 LOCAL_MODEL_FALLBACK=false
+
+# Estimated with tiktoken
+# Maximum context (often limited by your providers TPM)
+AGEX_MAX_CONTEXT_TOKENS=8000
+# How many tokens to leave for the models response. May be removed when streaming is added.
+AGEX_BUFFER_TOKENS=2000
 ```
 
 ## Running AGEX
