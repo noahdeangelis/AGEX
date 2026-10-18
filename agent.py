@@ -334,6 +334,9 @@ class AIAgent:
                     return response
 
                 except APIStatusError as e:
+
+                    if e.status_code == 400: # Usuall tool errors. TODO: Maybe some detection to implement in the future.
+                        raise ValueError("MALFORMED_TOOL_JSON") from e
                     if e.status_code != 429: # TPM, RPM, Usage errors.
                         raise
 
@@ -375,13 +378,33 @@ class AIAgent:
 
             self.history = trim_history(self.history, tools=tools)
 
-            response = self.get_response(
-                max_retries=5,
-                messages=self.history,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0.2,
-            )
+            try:
+                response = self.get_response(
+                    max_retries=5,
+                    messages=self.history,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=0.2,
+                )
+
+            
+            except ValueError as e:
+                if str(e) != "MALFORMED_TOOL_JSON":
+                    raise
+
+                print(f"{YELLOW}[AGEX] TOOL FAILED: MALFORMED JSON. Retrying...{RESET}")
+
+                self.history.append({
+                    "role": "user",
+                    "content": (
+                        "TOOL FAILED: MALFORMED JSON. "
+                        "Your previous tool call contained invalid JSON and was rejected. "
+                        "Try the tool call again with valid JSON arguments. "
+                        "Preserve all source code exactly. Do not summarise or truncate it."
+                    )
+                })
+
+                continue
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls or []
 
