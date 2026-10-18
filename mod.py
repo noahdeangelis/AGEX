@@ -418,3 +418,700 @@ def shell(command: str, cwd: str = "."):
             "success": False,
             "error": f"{type(e).__name__}: {e}"
         }
+
+import socket
+import time
+@tool_registry.register("start_dev_server", "Start a local web server in the backround and return its URL. Runs python3 -m http.server port --bind 127.0.0.1 with the given params")
+def start_dev_server(cwd: str, port: int = 3000):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return f"Server already running: http://127.0.0.1:{port}"
+    except OSError:
+        pass
+
+    # Start the server in the background.
+    process = subprocess.Popen(
+        ["python3", "-m", "http.server", str(port), "--bind", "127.0.0.1"],
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    # Wait up to 5 seconds for startup.
+    for _ in range(10):
+        time.sleep(0.5)
+
+        if process.poll() is not None:
+            return "Server failed to start."
+
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return f"Server started: http://127.0.0.1:{port}"
+        except OSError:
+            continue
+
+    return "Server timed out while starting."
+
+#
+# I embarrasingly had ChatGPT port over the tools for playwright as I lack experience with it.
+# TODO: Have a HUMAN write the tools nicely and better
+#
+
+# ==========================================
+# PLAYWRIGHT BROWSER TOOLS
+# ==========================================
+
+import threading
+from urllib.parse import urlparse
+
+from playwright.sync_api import (
+    sync_playwright,
+    TimeoutError as PlaywrightTimeoutError,
+)
+
+_BROWSER_LOCK = threading.RLock()
+_PLAYWRIGHT = None
+_BROWSER = None
+_BROWSER_CONTEXT = None
+_BROWSER_PAGE = None
+_BROWSER_VISIBLE = False
+
+_BROWSER_ERRORS = {
+    "console": [],
+    "page": [],
+    "network": [],
+}
+
+
+def _browser_get_page():
+    """Return the persistent browser page or raise an error."""
+
+    if (
+        _BROWSER_PAGE is None
+        or _BROWSER_PAGE.is_closed()
+        or _BROWSER is None
+        or not _BROWSER.is_connected()
+    ):
+        raise RuntimeError(
+            "No browser is open. Use browser_open first."
+        )
+
+    return _BROWSER_PAGE
+
+
+def _browser_validate_url(url: str) -> str:
+    """Restrict browser navigation to localhost by default."""
+
+    url = url.strip()
+
+    if not url:
+        raise ValueError("URL cannot be empty.")
+
+    if "://" not in url:
+        url = "http://" + url
+
+    parsed = urlparse(url)
+
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("Only HTTP and HTTPS URLs are supported.")
+
+    if not parsed.hostname:
+        raise ValueError("Invalid URL.")
+
+    if parsed.username or parsed.password:
+        raise ValueError("URLs containing credentials are not allowed.")
+
+    allowed_hosts = {"localhost", "127.0.0.1", "::1"}
+
+    # Explicitly approved additional hosts can be configured in .env.
+    allowed_hosts.update(
+        host.strip().lower()
+        for host in os.getenv(
+            "AGEX_BROWSER_ALLOWED_HOSTS", ""
+        ).split(",")
+        if host.strip()
+    )
+
+    hostname = parsed.hostname.lower()
+
+    if hostname not in allowed_hosts:
+        raise ValueError(
+            f"Host '{hostname}' is not allowed. "
+            "Browser navigation is restricted to localhost by default. "
+            "Use AGEX_BROWSER_ALLOWED_HOSTS to allow trusted hosts."
+        )
+
+    return url
+
+
+def _browser_attach_listeners(page):
+    """Collect browser errors for later inspection."""
+
+    page.on(
+        "console",
+        lambda message: _BROWSER_ERRORS["console"].append(
+            message.text
+        ) if message.type == "error" else None
+    )
+
+    page.on(
+        "pageerror",
+        lambda error: _BROWSER_ERRORS["page"].append(str(error))
+    )
+
+    page.on(
+        "requestfailed",
+        lambda request: _BROWSER_ERRORS["network"].append(
+            f"{request.method} {request.url}: "
+            f"{request.failure or 'Request failed'}"
+        )
+    )
+
+
+def _browser_start(visible=False):
+    """Create a persistent Playwright browser session."""
+
+    global _PLAYWRIGHT
+    global _BROWSER
+    global _BROWSER_CONTEXT
+    global _BROWSER_PAGE
+    global _BROWSER_VISIBLE
+
+    with _BROWSER_LOCK:
+        if (
+            _BROWSER is not None
+            and _BROWSER.is_connected()
+            and _BROWSER_PAGE is not None
+            and not _BROWSER_PAGE.is_closed()
+        ):
+            if _BROWSER_VISIBLE == visible:
+                return _BROWSER_PAGE
+
+            _browser_shutdown()
+
+        _PLAYWRIGHT = sync_playwright().start()
+
+        _BROWSER = _PLAYWRIGHT.chromium.launch(
+            headless=not visible
+        )
+
+        _BROWSER_CONTEXT = _BROWSER.new_context(
+            viewport={
+                "width": 1440,
+                "height": 900,
+            }
+        )
+
+        _BROWSER_PAGE = _BROWSER_CONTEXT.new_page()
+
+        _BROWSER_PAGE.set_default_timeout(10000)
+
+        _BROWSER_VISIBLE = visible
+
+        _browser_attach_listeners(_BROWSER_PAGE)
+
+        return _BROWSER_PAGE
+
+
+def _browser_shutdown():
+    """Close the browser and release its resources."""
+
+    global _PLAYWRIGHT
+    global _BROWSER
+    global _BROWSER_CONTEXT
+    global _BROWSER_PAGE
+
+    with _BROWSER_LOCK:
+        try:
+            if _BROWSER is not None:
+                _BROWSER.close()
+        finally:
+            try:
+                if _PLAYWRIGHT is not None:
+                    _PLAYWRIGHT.stop()
+            finally:
+                _PLAYWRIGHT = None
+                _BROWSER = None
+                _BROWSER_CONTEXT = None
+                _BROWSER_PAGE = None
+
+
+def _browser_find(target: str, role: str = ""):
+    """
+    Find an element using its accessible name, label or placeholder.
+    CSS selectors are supported as a fallback.
+    """
+
+    page = _browser_get_page()
+
+    target = target.strip()
+
+    if not target:
+        raise ValueError("Element target cannot be empty.")
+
+    if role:
+        return page.get_by_role(
+            role,
+            name=target,
+            exact=True,
+        ).first
+
+    candidates = [
+        lambda: page.get_by_role(
+            "button", name=target, exact=True
+        ),
+        lambda: page.get_by_role(
+            "link", name=target, exact=True
+        ),
+        lambda: page.get_by_label(
+            target, exact=True
+        ),
+        lambda: page.get_by_placeholder(
+            target, exact=True
+        ),
+        lambda: page.get_by_text(
+            target, exact=True
+        ),
+    ]
+
+    for find_candidate in candidates:
+        try:
+            locator = find_candidate().first
+
+            if locator.count() > 0:
+                return locator
+
+        except Exception:
+            continue
+
+    # Fall back to a CSS selector.
+    return page.locator(target).first
+
+
+@tool_registry.register(
+    "browser_open",
+    "Open a website in a persistent Chromium browser. "
+    "Provide a URL and optionally visible=true to show the browser window."
+)
+def browser_open(url: str, visible: bool = False):
+    """Open a website and report its initial state."""
+
+    try:
+        url = _browser_validate_url(url)
+        page = _browser_start(visible=visible)
+
+        response = page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=15000,
+        )
+
+        try:
+            page.wait_for_load_state(
+                "networkidle",
+                timeout=2500,
+            )
+        except PlaywrightTimeoutError:
+            pass
+
+        return {
+            "success": True,
+            "url": page.url,
+            "title": page.title(),
+            "http_status": (
+                response.status if response else None
+            ),
+            "visible_browser": visible,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_inspect",
+    "Inspect the current website. Returns visible text, headings, "
+    "buttons, links, inputs and dropdowns."
+)
+def browser_inspect():
+    """Inspect visible page elements."""
+
+    try:
+        page = _browser_get_page()
+
+        elements = page.evaluate("""
+            () => {
+                const visible = el => {
+                    const rect = el.getBoundingClientRect();
+                    const style = getComputedStyle(el);
+
+                    return rect.width > 0
+                        && rect.height > 0
+                        && style.display !== "none"
+                        && style.visibility !== "hidden"
+                        && Number(style.opacity) !== 0;
+                };
+
+                const describe = el => ({
+                    tag: el.tagName.toLowerCase(),
+                    text: (
+                        el.getAttribute("aria-label")
+                        || el.innerText
+                        || el.value
+                        || el.placeholder
+                        || el.getAttribute("title")
+                        || ""
+                    ).trim().replace(/\\\\s+/g, " ").slice(0, 150),
+                    type: el.getAttribute("type") || "",
+                    placeholder: el.getAttribute("placeholder") || "",
+                    disabled: !!el.disabled,
+                    href: el.href || null
+                });
+
+                const selectors = {
+                    headings: "h1,h2,h3,h4",
+                    buttons: "button,[role=button],input[type=submit]",
+                    links: "a[href]",
+                    inputs: "input:not([type=hidden]),textarea",
+                    dropdowns: "select",
+                    checkboxes: "input[type=checkbox],input[type=radio]"
+                };
+
+                const result = {};
+
+                for (const [name, selector] of Object.entries(selectors)) {
+                    result[name] = Array.from(
+                        document.querySelectorAll(selector)
+                    )
+                    .filter(visible)
+                    .slice(0, 50)
+                    .map(describe);
+                }
+
+                result.visible_text = (
+                    document.body?.innerText || ""
+                ).slice(0, 6000);
+
+                return result;
+            }
+        """)
+
+        return {
+            "success": True,
+            "url": page.url,
+            "title": page.title(),
+            **elements,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_click",
+    "Click a website element by accessible name, label, text or CSS selector. "
+    "Optionally specify its role, such as button or link."
+)
+def browser_click(target: str, role: str = ""):
+    """Click an element and report the resulting page state."""
+
+    try:
+        page = _browser_get_page()
+
+        _browser_find(target, role).click()
+
+        try:
+            page.wait_for_load_state(
+                "domcontentloaded",
+                timeout=1500,
+            )
+        except PlaywrightTimeoutError:
+            pass
+
+        return {
+            "success": True,
+            "clicked": target,
+            "url": page.url,
+            "title": page.title(),
+            "visible_text": page.locator(
+                "body"
+            ).inner_text()[:2500],
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_type",
+    "Enter text into a website input or textarea using its label, "
+    "placeholder or CSS selector."
+)
+def browser_type(
+    target: str,
+    text: str,
+    clear_first: bool = True,
+):
+    """Fill an input or type text into an element."""
+
+    try:
+        element = _browser_find(target)
+
+        if clear_first:
+            element.fill(text)
+        else:
+            element.press_sequentially(text)
+
+        return {
+            "success": True,
+            "target": target,
+            "text_entered": text,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_press_key",
+    "Press a keyboard key on the page or a specified element, "
+    "such as Enter, Escape, Tab or ArrowDown."
+)
+def browser_press_key(key: str, target: str = "body"):
+    """Press a keyboard key."""
+
+    try:
+        element = _browser_find(target)
+        element.press(key)
+
+        page = _browser_get_page()
+
+        return {
+            "success": True,
+            "key": key,
+            "url": page.url,
+            "visible_text": page.locator(
+                "body"
+            ).inner_text()[:2000],
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_select",
+    "Select a dropdown option by its visible label or option value."
+)
+def browser_select(target: str, value: str):
+    """Select a dropdown option."""
+
+    try:
+        element = _browser_find(target)
+
+        try:
+            element.select_option(label=value)
+        except Exception:
+            element.select_option(value=value)
+
+        return {
+            "success": True,
+            "target": target,
+            "selected": value,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_scroll",
+    "Scroll the current webpage up, down, to the top or to the bottom."
+)
+def browser_scroll(direction: str = "down", amount: int = 650):
+    """Scroll the current page."""
+
+    try:
+        page = _browser_get_page()
+        direction = direction.lower()
+
+        if direction == "top":
+            page.evaluate("window.scrollTo(0, 0)")
+        elif direction == "bottom":
+            page.evaluate(
+                "window.scrollTo(0, document.body.scrollHeight)"
+            )
+        elif direction in {"up", "down"}:
+            amount = max(1, min(int(amount), 5000))
+
+            delta = amount if direction == "down" else -amount
+
+            page.evaluate(
+                "(delta) => window.scrollBy(0, delta)",
+                delta,
+            )
+        else:
+            return {
+                "success": False,
+                "error": "direction must be up, down, top or bottom.",
+            }
+
+        return {
+            "success": True,
+            "scroll_y": page.evaluate("window.scrollY"),
+            "url": page.url,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_screenshot",
+    "Capture the current webpage as a PNG screenshot and return the saved path."
+)
+def browser_screenshot(
+    filename: str = "current_page.png",
+    full_page: bool = True,
+):
+    """Capture a screenshot of the browser page."""
+
+    try:
+        page = _browser_get_page()
+
+        screenshot_dir = Path(
+            os.getenv(
+                "AGEX_BROWSER_SCREENSHOT_DIR",
+                str(Path.home() / ".agex" / "screenshots"),
+            )
+        ).expanduser().resolve()
+
+        screenshot_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        # Only accept a filename, not an arbitrary filesystem path.
+        filename = Path(filename).name
+
+        if not filename.lower().endswith(".png"):
+            filename += ".png"
+
+        destination = screenshot_dir / filename
+
+        page.screenshot(
+            path=str(destination),
+            full_page=full_page,
+            animations="disabled",
+        )
+
+        return {
+            "success": True,
+            "screenshot": str(destination),
+            "url": page.url,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_get_errors",
+    "Retrieve JavaScript console errors, page exceptions and failed "
+    "network requests captured during the browser session. "
+    "Optionally clear the collected errors afterward."
+)
+def browser_get_errors(clear: bool = False):
+    """Retrieve collected browser errors."""
+
+    result = {
+        name: errors[-100:]
+        for name, errors in _BROWSER_ERRORS.items()
+    }
+
+    if clear:
+        for errors in _BROWSER_ERRORS.values():
+            errors.clear()
+
+    return result
+
+
+@tool_registry.register(
+    "browser_reload",
+    "Reload the current webpage and return its title and visible text."
+)
+def browser_reload():
+    """Reload the current browser page."""
+
+    try:
+        page = _browser_get_page()
+        response = page.reload(
+            wait_until="domcontentloaded",
+            timeout=15000,
+        )
+
+        return {
+            "success": True,
+            "url": page.url,
+            "title": page.title(),
+            "http_status": (
+                response.status if response else None
+            ),
+            "visible_text": page.locator(
+                "body"
+            ).inner_text()[:2000],
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@tool_registry.register(
+    "browser_close",
+    "Close the persistent Chromium browser and release its resources."
+)
+def browser_close():
+    """Close the browser session."""
+
+    try:
+        _browser_shutdown()
+
+        return {
+            "success": True,
+            "message": "Browser closed.",
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+        }

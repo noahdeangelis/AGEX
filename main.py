@@ -1,6 +1,8 @@
 from agent import AIAgent
 import platform
 import subprocess
+import sys
+import importlib.util
 import mod
 
 YELLOW = "\033[1;33m"
@@ -24,6 +26,12 @@ WORKFLOW:
 7. Test functionality, handle errors and edge cases, and fix problems as they arise.
 8. Run the completed project, execute relevant tests, and fix build errors, runtime errors, and broken features.
 9. Refine the result until it is functional, cohesive, and ready to use.
+10. For web projects, use the Playwright browser tools to test the website
+    throughout development. Open the site using browser_open with visible=false,
+    inspect it with browser_inspect, and interact with its buttons, links, forms,
+    and other features. Verify that each feature works before proceeding.
+11. Repeat browser testing after making changes, fixing any issues discovered,
+    and checking again until the website works as expected.
 
 QUALITY STANDARDS:
 - Use clean, maintainable, well-organized code.
@@ -44,14 +52,45 @@ IMPORTANT RULES:
 - Continue until the requested project is complete or a genuine limitation prevents further progress.
 - Never claim a feature works unless it has been implemented and appropriately verified.
 
+- For web projects, browser testing is mandatory. Use Playwright in headless mode (visible=false) to inspect and interact with the running website.
+- Start the development server and verify that the website is accessible before testing it. Determine the correct URL and port from the project configuration.
+- Test actual functionality, not just whether the page loads. Interact with relevant elements and verify the results using browser_inspect.
+- Use browser_get_errors to check for JavaScript errors and failed network requests. Fix discovered issues and retest.
+- Perform browser testing continuously during development, not just at the end.
+- Do not claim a feature works unless you have tested it where practical.
+- Do not open a visible browser window unless the user explicitly requests it.
+- If browser testing fails, investigate the cause and attempt to resolve it before continuing.
+- Use start_dev_server to start local websites before browser testing.
+- Pass the project directory and desired port.
+- Use the returned URL with browser_open(visible=false).
+- Reuse an existing server instead of repeatedly restarting it.
+- By default test with port 8000 unless requested otherwise by the user.
+
 COMPLETION:
 Provide a concise summary of the implementation, its major features, the tests performed, and the commands needed to run the project. Clearly disclose any remaining limitations.
 
 The user's original request appears below. Treat it as the source of truth for what to build, and preserve all its specific requirements.
 """
 
+
+def ensure_playwright_chromium():
+    """Install Playwright and Chromium if they are missing."""
+
+    print("[AGEX] Installing Chromium dependencies. If this is your first time it may take a few minutes.")
+
+    # Install Chromium if needed.
+    result = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError("Failed to install Chromium. Run: python -m playwright install chromium\n" + result.stderr)
+
 if __name__ == "__main__":
     print("--- AGEX ---")
+    ensure_playwright_chromium()
     print("Type 'exit' or 'quit' to stop.\n")
 
     try:

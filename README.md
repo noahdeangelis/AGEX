@@ -36,6 +36,7 @@ Simply configure the default .env file provided to connect local or cloud models
 - **File writer** — Create files or overwrite existing files after user confirmation.
 - **File editor** — Replace a unique piece of text in an existing file, preview the changes, and request user confirmation.
 - **Shell execution** — Execute shell commands on the host computer with configurable timeout and output limits, and user confirmation before execution.
+- **Playwright** - Use the playwright tools to view, explore and debugs websites.
 
 > Note: Any file or shell operations uses a confirm prompt allowing you to stop any edits, creations, shell commands, etc
 **This confirm prompt can be implemented into custom tools too.**
