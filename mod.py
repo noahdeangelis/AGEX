@@ -18,6 +18,11 @@ from ddgs import DDGS
 from pathlib import Path
 import difflib
 import subprocess
+from dotenv import load_dotenv
+import socket
+import time
+
+load_dotenv()
 
 SHELL_TIMEOUT = 60
 SHELL_MAX_OUTPUT = 12000
@@ -164,7 +169,7 @@ def list_directory(path = "."):
 #
 # Confirm required tools
 #
-def confirm_operation(operation, target, preview, warning=None):
+def confirm_operation(operation, target, preview, warning=None, auto=False):
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
@@ -188,10 +193,14 @@ def confirm_operation(operation, target, preview, warning=None):
     print(f"{WHITE}{preview}{RESET}")
     print(f"{CYAN}{'─' * 60}{RESET}")
 
-    answer = input(
-        f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve  "
-        f"{RED}[n]{RESET} reject: "
-    ).strip().lower()
+    if not auto:
+        answer = input(
+            f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve  "
+            f"{RED}[n]{RESET} reject: "
+        ).strip().lower()
+    else:
+        print(f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve {RED}[n]{RESET} reject: y (auto)")
+        answer = "y"
 
     if answer in {"y", "yes"}:
         print(f"{GREEN}✓ Approved{RESET}")
@@ -232,7 +241,8 @@ def write_file(path: str, content: str):
                 "This will overwrite the existing file!"
                 if target.exists()
                 else None
-            )
+            ),
+            auto=os.getenv("AUTO_ACCEPT_FILE_OPERATIONS", "false").lower() == "true"
         ):
             return {
                 "success": False,
@@ -313,7 +323,8 @@ def edit_file(path: str, old_text: str, new_text: str):
             operation="Edit file",
             target=str(target),
             preview=preview,
-            warning="This will modify the existing file."
+            warning="This will modify the existing file.",
+            auto=os.getenv("AUTO_ACCEPT_FILE_OPERATIONS", "false").lower() == "true"
         ):
             return {
                 "success": False,
@@ -369,7 +380,8 @@ def shell(command: str, cwd: str = "."):
             warning=(
                 "This command runs on your computer "
                 "with your user permissions."
-            )
+            ),
+            auto=os.getenv("AUTO_ACCEPT_SHELL_OPERATIONS", "false").lower() == "true"
         )
 
         if not approved:
@@ -419,8 +431,8 @@ def shell(command: str, cwd: str = "."):
             "error": f"{type(e).__name__}: {e}"
         }
 
-import socket
-import time
+DEV_SERVERS = {}
+
 @tool_registry.register("start_dev_server", "Start a local web server in the backround and return its URL. Runs python3 -m http.server port --bind 127.0.0.1 with the given params")
 def start_dev_server(cwd: str, port: int = 3000):
     try:
@@ -439,6 +451,8 @@ def start_dev_server(cwd: str, port: int = 3000):
         start_new_session=True,
     )
 
+    DEV_SERVERS[port] = process
+
     # Wait up to 5 seconds for startup.
     for _ in range(10):
         time.sleep(0.5)
@@ -453,6 +467,33 @@ def start_dev_server(cwd: str, port: int = 3000):
             continue
 
     return "Server timed out while starting."
+
+
+@tool_registry.register("stop_dev_server", "Stop a development server previously started by start_dev_server.")
+def stop_dev_server(port: int = 8000) -> str:
+    process = DEV_SERVERS.get(port)
+
+    if process is None:
+        return f"AGEX has no tracked development server on port {port}."
+
+    if process.poll() is not None:
+        DEV_SERVERS.pop(port, None)
+        return f"The development server on port {port} has already stopped."
+
+    try:
+        process.terminate()
+
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+
+        DEV_SERVERS.pop(port, None)
+        return f"Stopped development server on port {port}."
+
+    except Exception as e:
+        return f"Failed to stop development server on port {port}: {e}"
 
 #
 # I embarrasingly had ChatGPT port over the tools for playwright as I lack experience with it.

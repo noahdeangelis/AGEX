@@ -65,6 +65,13 @@ IMPORTANT RULES:
 - Use the returned URL with browser_open(visible=false).
 - Reuse an existing server instead of repeatedly restarting it.
 - By default test with port 8000 unless requested otherwise by the user.
+- If a `.venv` virtual environment exists in the project, use its Python interpreter and pip instead of the system Python and pip.
+- When working on a Python project in a Linux environment, create a `.venv` virtual environment if one does not already exist, and use it for all project-specific Python operations and package installations.
+- For all web projects, you MUST use start_dev_server to start the website and the Playwright browser tools to test it.
+- DO NOT TERMINATE PYTHON. That will terminate you.
+- When finished testing, use stop_dev_server to stop the development server you started, unless the user wants it left running.
+- stop_dev_server will free up the port.
+- Never use shell commands to kill processes or clear ports when stop_dev_server can handle it.
 
 COMPLETION:
 Provide a concise summary of the implementation, its major features, the tests performed, and the commands needed to run the project. Clearly disclose any remaining limitations.
