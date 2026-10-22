@@ -290,7 +290,8 @@ if __name__ == "__main__":
                     continue
 
                 elif user_message.lower() == "/new":
-                    agent.create_new_chat()
+                    new_chat_name = input("New chat name: ")
+                    agent.create_new_chat(new_chat_name)
                     continue
 
                 print("Goodbye!")

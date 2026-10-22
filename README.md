@@ -43,11 +43,14 @@ Simply configure the default .env file provided to connect local or cloud models
 
 ### Commands
 
-- **/quit** - Exit the program.
-- **/exit** - Exit the program.
-- **/clear** - Clear the terminal.
-- **/model** - Switch between Primary, Backups and Local on the fly.
-- **/build** - Build, run, and test full apps by itself. E.g. /build make a modern todo list in HTML on my desktop in todo folder. (prepends prompt onto user message)
+- **`/quit`** - Exit the program.
+- **`/exit`** - Exit the program.
+- **`/clear`** - Clear the terminal.
+- **`/model`** - Switch between Primary, Backups and Local on the fly.
+- **`/build <task>`** - Build, run, and test full apps by itself. E.g. /build make a modern todo list in HTML on my desktop in todo folder. (prepends prompt onto user message)
+- **`/new`** - Start a new conversation while preserving existing saved chats.
+- **`/chats`** - View saved conversations and select one to continue.
+- **`/resume <id>`** - Resume a saved conversation by its chat ID, restoring its message history.
 
 ## Requirements
 
@@ -128,11 +131,14 @@ LOCAL_MODEL_NAME="local-model-name"
 # Run the local model as a final backup basically (server must be running and this be set to true)
 LOCAL_MODEL_FALLBACK=false
 
-# Estimated with tiktoken
 # Maximum context (often limited by your providers TPM)
 AGEX_MAX_CONTEXT_TOKENS=8000
 # How many tokens to leave for the models response. May be removed when streaming is added.
 AGEX_BUFFER_TOKENS=2000
+
+# Auto accept operations. Can be dangerous. Use at your own risk.
+AUTO_ACCEPT_FILE_OPERATIONS=false
+AUTO_ACCEPT_SHELL_OPERATIONS=false
 ```
 
 ## Running AGEX
