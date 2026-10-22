@@ -79,6 +79,13 @@ Provide a concise summary of the implementation, its major features, the tests p
 The user's original request appears below. Treat it as the source of truth for what to build, and preserve all its specific requirements.
 """
 
+def clear_screen():
+    current_os = platform.system()
+    if current_os == "Windows":
+        subprocess.run("cls", shell=True)
+    else:
+        subprocess.run("clear", shell=True)
+
 
 def ensure_playwright_chromium():
     """Install Playwright and Chromium if they are missing."""
@@ -94,9 +101,102 @@ def ensure_playwright_chromium():
 
     if result.returncode != 0:
         raise RuntimeError("Failed to install Chromium. Run: python -m playwright install chromium\n" + result.stderr)
-
+    
 if __name__ == "__main__":
+    clear_screen()
     print("--- AGEX ---")
+
+    from chat_storage import ChatStorage
+    storage = ChatStorage()
+
+    resume_id = None
+    new_chat_name = None
+
+    while True:
+        print("\n--- AGEX CHAT HISTORY ---")
+        print("[1] Continue a chat")
+        print("[2] Start a new chat")
+        print("[3] Delete a chat")
+        print("[4] Exit")
+
+        choice = input("Option: ").strip()
+
+        if choice == "1":
+            chats = storage.list_chats()
+
+            if not chats:
+                clear_screen()
+                print("No saved chats. Start a new one instead.\n")
+                continue
+
+            for chat in chats:
+                print(f"[{chat['id']}] {chat['title']}")
+
+            try:
+                chat_id = int(input("Chat ID to continue: ").strip())
+
+                if any(chat["id"] == chat_id for chat in chats):
+                    resume_id = chat_id
+                    break
+
+                clear_screen()
+                print("Invalid chat ID.\n")
+
+            except ValueError:
+                clear_screen()
+                print("Enter a valid numeric chat ID.\n")
+
+        elif choice == "2":
+            new_chat_name = input("Chat name: ").strip()
+
+            if not new_chat_name:
+                new_chat_name = "New chat"
+
+            break
+
+        elif choice == "3":
+            chats = storage.list_chats()
+
+            if not chats:
+                clear_screen()
+                print("No saved chats to delete.\n")
+                continue
+
+            for chat in chats:
+                print(f"[{chat['id']}] {chat['title']}")
+
+            try:
+                chat_id = int(input("Chat ID to delete: ").strip())
+
+                if any(chat["id"] == chat_id for chat in chats):
+                    confirm = input(
+                        f"Delete '{next(c['title'] for c in chats if c['id'] == chat_id)}'? (y/n): "
+                    ).strip().lower()
+
+                    if confirm == "y":
+                        if storage.delete_chat(chat_id):
+                            clear_screen()
+                            print("Chat deleted.\n")
+                        else:
+                            clear_screen()
+                            print("Failed to delete chat.\n")
+                else:
+                    clear_screen()
+                    print("Invalid chat ID.\n")
+
+            except ValueError:
+                clear_screen()
+                print("Enter a valid numeric chat ID.\n")
+
+        elif choice == "4":
+            print("Goodbye!")
+            sys.exit(0)
+
+        else:
+            clear_screen()
+            print("Please select 1, 2, 3, or 4.\n")
+
+    clear_screen()
     ensure_playwright_chromium()
     print("Type 'exit' or 'quit' to stop.\n")
 
@@ -114,21 +214,25 @@ if __name__ == "__main__":
                 mode = "local"
                 break
             print("Please select a valid mode.")
-            
+
+        clear_screen()
+
         agent = AIAgent(mode)
+        if resume_id is not None:
+            if not agent.load_history(resume_id):
+                print("Could not load chat. Starting a new one.")
+                agent.create_new_chat()
+        elif new_chat_name is not None:
+            agent.create_new_chat(name=new_chat_name)
 
         while True:
             user_message = input(f"{YELLOW}You: ").strip()
             print(f"{RESET}", end="")
 
             # Manage exiting and basic commands.
-            if user_message.lower() in {"/exit", "/quit", "/clear", "/model"}:
+            if user_message.lower() in {"/exit", "/quit", "/clear", "/model", "/chats", "/new"} or user_message.lower().startswith("/resume "):
                 if user_message.lower() == "/clear":
-                    current_os = platform.system()
-                    if current_os == "Windows":
-                        subprocess.run("cls", shell=True)
-                    else:
-                        subprocess.run("clear", shell=True)
+                    clear_screen()
                     continue
 
                 elif user_message.lower() == "/model":
@@ -161,6 +265,34 @@ if __name__ == "__main__":
                         except ValueError:
                             print("Invalid choice. Enter a number or 'q'.")
                     continue
+
+                elif user_message.lower() == "/chats":
+                    chats = agent.storage.list_chats()
+
+                    if not chats:
+                        print("No saved chats.")
+                    else:
+                        for chat in chats:
+                            print(f"[{chat['id']}] {chat['title']}")
+
+                    continue
+
+                elif user_message.lower().startswith("/resume "):
+                    try:
+                        chat_id = int(user_message.split(maxsplit=1)[1])
+
+                        if agent.load_history(chat_id):
+                            print(f"Resumed chat {chat_id}.\n")
+
+                    except ValueError:
+                        print("Usage: /resume <chat_id>")
+
+                    continue
+
+                elif user_message.lower() == "/new":
+                    agent.create_new_chat()
+                    continue
+
                 print("Goodbye!")
                 break
 

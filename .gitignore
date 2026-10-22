@@ -18,6 +18,9 @@ build/
 dist/
 *.egg-info/
 
+# Personal data
+data/
+
 # Testing and coverage
 .pytest_cache/
 .coverage

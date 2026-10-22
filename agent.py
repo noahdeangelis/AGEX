@@ -8,6 +8,7 @@ from platformdirs import user_desktop_dir
 import time
 from openai import APIStatusError
 from tokenizer import count_messages, INPUT_TOKEN_BUDGET
+from chat_storage import ChatStorage
 
 BLUE = "\033[94m"
 YELLOW = "\033[38;5;221m"
@@ -274,6 +275,38 @@ class AIAgent:
 
         self.history.append({"role": "system", "content": self.system_prompt})
 
+        self.storage = ChatStorage()
+        self.chat_id = None
+
+    def _append_history(self, message):
+        """Add a message to memory and persist it."""
+        self.history.append(message)
+
+        if hasattr(self, "storage") and self.chat_id is not None:
+            self.storage.save_message(self.chat_id, message)
+
+
+    def load_history(self, chat_id):
+        """Load a saved conversation into this agent."""
+        messages = self.storage.load_messages(chat_id)
+
+        if not messages:
+            print(f"{RED}[AGEX] Chat {chat_id} not found or empty.{RESET}")
+            return False
+
+        self.chat_id = chat_id
+        self.history = [{"role": "system", "content": self.system_prompt}, *messages]
+
+        print(f"{BLUE}[AGEX] Loaded chat {chat_id}.{RESET}")
+        return True
+
+
+    def create_new_chat(self, name="New chat"):
+        """Start a fresh conversation without deleting saved chats."""
+        self.chat_id = self.storage.create_chat(title=name, model=self.model_configs[self.current_model]["model"])
+        self.history = [{"role": "system", "content": self.system_prompt}]
+        print(f"{BLUE}[AGEX] Started new chat {self.chat_id}.{RESET}")
+
     def get_models(self):
         """
         Returns models of the format: [(model_name, is_primary, is_local, is_backup, backup_no or None)] of size n models
@@ -369,7 +402,7 @@ class AIAgent:
         The agent will decide whether to use tools or respond directly.
         """
         # TODO: Implement streaming
-        self.history.append({"role": "user", "content": user_message})
+        self._append_history({"role": "user", "content": user_message})
 
         while True:
             # Will get the response and auto switch from Primary to Backup or to Local
@@ -394,7 +427,7 @@ class AIAgent:
 
                 print(f"{YELLOW}[AGEX] TOOL FAILED: MALFORMED JSON. Retrying...{RESET}")
 
-                self.history.append({
+                self._append_history({
                     "role": "tool",
                     "content": (
                         "TOOL FAILED: MALFORMED JSON. "
@@ -413,10 +446,10 @@ class AIAgent:
             if not tool_calls:
                 # if response_message.content:
                     # print(f"{BLUE}[AGEX Thought]{RESET} {response_message.content}")
-                self.history.append({"role": "assistant", "content": response_message.content})
+                self._append_history({"role": "assistant", "content": response_message.content})
                 return response_message.content
 
-            self.history.append({
+            self._append_history({
                 "role": "assistant",
                 "content": response_message.content or None,
                 "tool_calls": [
@@ -441,7 +474,7 @@ class AIAgent:
                     think_answer = tool_args.get("answer", "A final answer was not parsed.")
                     print(f"{BLUE}[AGEX Thought]{RESET} {think_answer}")
 
-                    self.history.append({
+                    self._append_history({
                         "tool_call_id": tool_call.id,
                         "role": "tool",
                         "name": tool_name,
@@ -460,7 +493,7 @@ class AIAgent:
                 else:
                     tool_result = json.dumps({"error": f"Tool '{tool_name}' not found."})
 
-                self.history.append({
+                self._append_history({
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": tool_name,
