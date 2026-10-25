@@ -4,13 +4,15 @@ import threading
 from pathlib import Path
 import uuid
 from threading import Event, Lock
+import json
+import queue
 
 from core.agent import AIAgent
 import core.mod
 
 import webview
 from dotenv import dotenv_values, set_key, unset_key
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 agent = AIAgent(mode="openai")
 
@@ -23,6 +25,8 @@ ENV_LOCK = threading.Lock()
 
 CONFIRMATIONS = {}
 CONFIRMATION_LOCK = Lock()
+
+AGENT_LOCK = Lock()
 
 @app.route("/api/confirm", methods=["GET"])
 def get_confirmation():
@@ -149,13 +153,39 @@ def chat():
     if not message:
         return jsonify({"error": "Message cannot be empty."}), 400
 
-    try:
-        response = agent.chat(message)
-        return jsonify({"response": response or ""})
+    events = queue.Queue()
 
-    except Exception as error:
-        app.logger.exception("AGEX chat failed")
-        return jsonify({"error": f"{type(error).__name__}: {error}"}), 500
+    def run_agent():
+        try:
+            with AGENT_LOCK:
+                response = agent.chat(message, on_tool_event=events.put)
+
+            events.put({"type": "final", "response": response or ""})
+        except Exception as error:
+            events.put({"type": "error", "error": f"{type(error).__name__}: {error}"})
+        finally:
+            events.put(None)
+
+    def generate_events():
+        threading.Thread(target=run_agent, daemon=True).start()
+
+        while True:
+            try:
+                event = events.get(timeout=15)
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+                continue
+
+            if event is None:
+                break
+
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return Response(
+        stream_with_context(generate_events()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
 @app.route("/api/settings", methods=["GET"])
 def get_settings():

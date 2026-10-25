@@ -258,6 +258,12 @@ body {
     width: 100%;
 }
 
+.user-response {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+}
+
 
 .tool-log {
     font-size: 12px;

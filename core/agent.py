@@ -396,7 +396,7 @@ class AIAgent:
                 raise # Unhandled error
         raise RuntimeError("No model returned a response.") # Just in case
 
-    def chat(self, user_message: str):
+    def chat(self, user_message: str, on_tool_event=None):
         """
         Send a message to the AI agent and get a response.
         The agent will decide whether to use tools or respond directly.
@@ -483,15 +483,40 @@ class AIAgent:
 
                     continue
 
+                if on_tool_event: # THis is for the web version for the GUI
+                    on_tool_event({
+                        "type": "tool_start",
+                        "id": tool_call.id,
+                        "name": tool_name,
+                        "arguments": tool_args,
+                    })
+
                 # Outputting large edits is really annoying
                 if tool_name not in ["write_file", "edit_file"]:
                     print(f"{BLUE}[AGEX]{RESET} Calling tool '{tool_name}' with args: {tool_args}")
 
-                if tool_name in tool_registry.tools:
-                    tool_func = tool_registry.tools[tool_name]["function"]
-                    tool_result = tool_func(**tool_args)
-                else:
-                    tool_result = json.dumps({"error": f"Tool '{tool_name}' not found."})
+                try:
+                    if tool_name in tool_registry.tools:
+                        tool_func = tool_registry.tools[tool_name]["function"]
+                        tool_result = tool_func(**tool_args)
+                    else:
+                        tool_result = json.dumps({"error": f"Tool '{tool_name}' not found."})
+                except Exception as error:
+                    if on_tool_event:
+                        on_tool_event({
+                            "type": "tool_error",
+                            "id": tool_call.id,
+                            "error": f"{type(error).__name__}: {error}",
+                        })
+                    raise
+
+                if on_tool_event:
+                    on_tool_event({
+                        "type": "tool_finish",
+                        "id": tool_call.id,
+                        "name": tool_name,
+                        "result": str(tool_result),
+                    })
 
                 self._append_history({
                     "tool_call_id": tool_call.id,

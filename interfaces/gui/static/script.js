@@ -54,6 +54,94 @@ function addMessage(role, content) {
     return message;
 }
 
+async function readChatStream(response, responseMessage) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const toolLogs = new Map();
+    let buffer = "";
+
+    while (true) {
+        const { value, done } = await reader.read();
+
+        if (value) {
+            buffer += decoder.decode(value, { stream: !done });
+        }
+
+        buffer = buffer.replace(/\r\n/g, "\n");
+
+        let boundary;
+        while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+
+            const dataLine = frame
+                .split("\n")
+                .find(line => line.startsWith("data:"));
+
+            if (!dataLine) continue;
+
+            const event = JSON.parse(dataLine.slice(5).trim());
+
+            if (event.type === "tool_start") {
+                const details = document.createElement("details");
+                details.className = "tool-log";
+
+                const summary = document.createElement("summary");
+                const name = event.name
+                    .replace(/_/g, " ")
+                    .replace(/\b\w/g, letter => letter.toUpperCase());
+                summary.textContent = `Running tool: ${name}`;
+
+                const content = document.createElement("div");
+                content.className = "tool-content";
+
+                const args = document.createElement("pre");
+                args.textContent = `Arguments:\n${JSON.stringify(event.arguments, null, 2)}`;
+
+                const result = document.createElement("pre");
+                result.textContent = "Result: Running…";
+
+                content.append(args, result);
+                details.append(summary, content);
+                responseMessage.parentElement.insertBefore(details, responseMessage);
+                toolLogs.set(event.id, { details, summary, result, name });
+            }
+
+            if (event.type === "tool_finish") {
+                const log = toolLogs.get(event.id);
+                if (log) {
+                    log.summary.textContent = `Used tool: ${log.name}`;
+                    log.result.textContent = `Result:\n${event.result}`;
+                }
+            }
+
+            if (event.type === "tool_error") {
+                const log = toolLogs.get(event.id);
+                if (log) {
+                    log.summary.textContent = `Used tool: ${log.name}`;
+                    log.result.textContent = `Error:\n${event.error}`;
+                    log.details.open = true;
+                }
+            }
+
+            if (event.type === "error") {
+                responseMessage.textContent = `Error: ${event.error}`;
+            }
+
+            if (event.type === "final") {
+                responseMessage.textContent =
+                    event.response || "AGEX returned an empty response.";
+            }
+
+            if (event.type === "error") {
+                throw new Error(event.error);
+            }
+        }
+
+        if (done) break;
+    }
+}
+
 chatForm.addEventListener("submit", async event => {
     event.preventDefault();
 
@@ -80,14 +168,12 @@ chatForm.addEventListener("submit", async event => {
             body: JSON.stringify({ message })
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
+            const data = await response.json();
             throw new Error(data.error || "AGEX failed to respond.");
         }
 
-        responseMessage.textContent =
-            data.response || "AGEX returned an empty response.";
+        await readChatStream(response, responseMessage);
 
     } catch (error) {
         responseMessage.textContent = `Error: ${error.message}`;
