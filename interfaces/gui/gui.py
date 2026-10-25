@@ -28,6 +28,29 @@ CONFIRMATION_LOCK = Lock()
 
 AGENT_LOCK = Lock()
 
+@app.route("/api/chats/<int:chat_id>", methods=["DELETE"])
+def delete_chat(chat_id):
+    with AGENT_LOCK:
+        deleted = agent.storage.delete_chat(chat_id)
+
+        if not deleted:
+            return jsonify({"error": "Chat not found."}), 404
+
+        # If deleting the open chat, reset the agent to an unsaved new chat.
+        if agent.chat_id == chat_id:
+            agent.chat_id = None
+            agent.history = [
+                {"role": "system", "content": agent.system_prompt}
+            ]
+
+    return jsonify({"success": True})
+
+@app.route("/api/model", methods=["GET"])
+def get_active_model():
+    with AGENT_LOCK:
+        model = agent.model_configs[agent.current_model]["model"]
+    return jsonify({"model": model})
+
 @app.route("/api/confirm", methods=["GET"])
 def get_confirmation():
     with CONFIRMATION_LOCK:
@@ -145,6 +168,94 @@ def index():
 #     response = f"You said: {message}"
 
 #     return jsonify({"response": response})
+
+@app.route("/api/chats", methods=["GET"])
+def list_chats():
+    return jsonify(agent.storage.list_chats())
+
+
+@app.route("/api/chats/<int:chat_id>", methods=["POST"])
+def load_chat(chat_id):
+    with AGENT_LOCK:
+        chat_info = next(
+            (chat for chat in agent.storage.list_chats()
+             if chat["id"] == chat_id),
+            None,
+        )
+
+        if chat_info is None:
+            return jsonify({"error": "Chat not found."}), 404
+
+        messages = agent.storage.load_messages(chat_id)
+
+        # Restore all saved conversation/tool messages for the model.
+        agent.chat_id = chat_id
+        agent.history = [
+            {"role": "system", "content": agent.system_prompt},
+            *messages,
+        ]
+
+    tool_results = {
+        item.get("tool_call_id"): item
+        for item in messages
+        if item.get("role") == "tool"
+    }
+
+    visible_messages = []
+
+    for item in messages:
+        if item.get("role") == "user":
+            visible_messages.append({
+                "role": "user",
+                "content": item.get("content", ""),
+            })
+
+        elif item.get("role") == "assistant":
+            calls = item.get("tool_calls") or []
+
+            # Display any tool calls stored on this assistant-history entry.
+            tools = []
+            for call in calls:
+                function = call.get("function", {})
+                result = tool_results.get(call.get("id"), {})
+
+                try:
+                    arguments = json.loads(function.get("arguments", "{}"))
+                except (TypeError, json.JSONDecodeError):
+                    arguments = function.get("arguments", "")
+
+                tools.append({
+                    "name": function.get("name", "Unknown tool"),
+                    "arguments": arguments,
+                    "result": result.get("content", "No result was saved."),
+                })
+
+            content = item.get("content") or ""
+            if content or tools:
+                visible_messages.append({
+                    "role": "assistant",
+                    "content": content,
+                    "tools": tools,
+                })
+
+    return jsonify({
+        "id": chat_id,
+        "title": chat_info["title"],
+        "messages": visible_messages,
+    })
+
+
+@app.route("/api/chats/new", methods=["POST"])
+def start_new_chat():
+    with AGENT_LOCK:
+        # Keep it unsaved until its first message supplies the title.
+        agent.chat_id = None
+        agent.history = [
+            {"role": "system", "content": agent.system_prompt}
+        ]
+
+    return jsonify({"success": True})
+
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json(silent=True) or {}
@@ -158,9 +269,18 @@ def chat():
     def run_agent():
         try:
             with AGENT_LOCK:
+                if agent.chat_id is None:
+                    title = message[:20].strip() or "New chat"
+                    agent.chat_id = agent.storage.create_chat(title=title, model=agent.model_configs[agent.current_model]["model"])
+                    events.put({
+                        "type": "chat_created",
+                        "id": agent.chat_id,
+                        "title": title,
+                    })
                 response = agent.chat(message, on_tool_event=events.put)
+                active_model = agent.model_configs[agent.current_model]["model"]
 
-            events.put({"type": "final", "response": response or ""})
+            events.put({"type": "final", "response": response or "", "model": active_model})
         except Exception as error:
             events.put({"type": "error", "error": f"{type(error).__name__}: {error}"})
         finally:

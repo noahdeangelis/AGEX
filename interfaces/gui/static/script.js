@@ -35,6 +35,17 @@ const messageInput = document.getElementById("message-input");
 const chatContainer = document.getElementById("chat");
 
 let isGenerating = false;
+let currentChatId = null;
+
+async function updateModelTag() {
+    const response = await fetch("/api/model");
+    if (!response.ok) return;
+
+    const data = await response.json();
+    document.getElementById("model").textContent = data.model;
+}
+
+updateModelTag();
 
 function addMessage(role, content) {
     const wrapper = document.createElement("div");
@@ -53,6 +64,175 @@ function addMessage(role, content) {
 
     return message;
 }
+
+function addStoredToolLog(parent, tool) {
+    const details = document.createElement("details");
+    details.className = "tool-log";
+
+    const summary = document.createElement("summary");
+    const name = tool.name
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, letter => letter.toUpperCase());
+    summary.textContent = `Used tool: ${name}`;
+
+    const content = document.createElement("div");
+    content.className = "tool-content";
+
+    const args = document.createElement("pre");
+    args.textContent =
+        `Arguments:\n${JSON.stringify(tool.arguments, null, 2)}`;
+
+    const result = document.createElement("pre");
+    result.textContent = `Result:\n${tool.result}`;
+
+    content.append(args, result);
+    details.append(summary, content);
+    parent.appendChild(details);
+}
+
+async function loadChats() {
+    const response = await fetch("/api/chats");
+    if (!response.ok) return;
+
+    const chats = await response.json();
+    const history = document.getElementById("chat-history");
+    history.replaceChildren();
+
+    for (const item of chats) {
+        const row = document.createElement("div");
+        row.className = "history-row";
+
+        const chatButton = document.createElement("button");
+        chatButton.type = "button";
+        chatButton.className = "history-item";
+        chatButton.textContent = item.title;
+        chatButton.classList.toggle("active", item.id === currentChatId);
+
+        chatButton.addEventListener("click", async () => {
+            const response = await fetch(`/api/chats/${item.id}`, {
+                method: "POST",
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                console.error(data.error || "Could not load chat.");
+                return;
+            }
+
+            currentChatId = data.id;
+            document.getElementById("title").textContent = data.title;
+            chatContainer.replaceChildren();
+
+            let pendingTools = [];
+
+            for (const message of data.messages) {
+                const tools = message.tools || [];
+
+                // Saved tool-call entries often have no visible assistant text.
+                // Hold their logs until the assistant's reply is rendered.
+                if (message.role === "assistant" && tools.length && !message.content) {
+                    pendingTools.push(...tools);
+                    continue;
+                }
+
+                const messageElement = addMessage(message.role, message.content);
+
+                if (message.role === "assistant") {
+                    const wrapper = messageElement.parentElement;
+                    const toolsToShow = [...pendingTools, ...tools];
+
+                    toolsToShow.forEach(tool => addStoredToolLog(wrapper, tool));
+
+                    if (toolsToShow.length) {
+                        // Keep the tool dropdowns above the assistant reply.
+                        wrapper.appendChild(messageElement);
+                    }
+
+                    pendingTools = [];
+                }
+            }
+            
+            await loadChats();
+        });
+
+        const moreButton = document.createElement("button");
+        moreButton.type = "button";
+        moreButton.className = "chat-more";
+        moreButton.textContent = "⋯";
+        moreButton.setAttribute("aria-label", `Options for ${item.title}`);
+
+        const menu = document.createElement("div");
+        menu.className = "chat-menu";
+        menu.hidden = true;
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+
+        moreButton.addEventListener("click", event => {
+            event.stopPropagation();
+            const selfstate = menu.hidden
+
+            document.querySelectorAll(".chat-menu").forEach(openMenu => {
+                openMenu.hidden = true;
+            });
+
+            menu.hidden = !selfstate;
+
+            if (!menu.hidden) {
+                const rect = moreButton.getBoundingClientRect();
+
+                menu.style.right = `${window.innerWidth - rect.right}px`;
+                menu.style.top = `${Math.min(
+                    rect.bottom + 4,
+                    window.innerHeight - menu.offsetHeight - 8
+                )}px`;
+            }
+        });
+
+        deleteButton.addEventListener("click", async () => {
+            if (!confirm(`Delete "${item.title}"? This cannot be undone.`)) {
+                return;
+            }
+
+            const response = await fetch(`/api/chats/${item.id}`, {
+                method: "DELETE",
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                console.error(data.error || "Could not delete chat.");
+                return;
+            }
+
+            if (currentChatId === item.id) {
+                currentChatId = null;
+                document.getElementById("title").textContent = "New Chat";
+                chatContainer.replaceChildren();
+                addMessage("assistant", "Hello! I'm AGEX. How can I help?");
+            }
+
+            await loadChats();
+        });
+
+        menu.appendChild(deleteButton);
+        row.append(chatButton, moreButton, menu);
+        history.appendChild(row);
+    }
+}
+
+document.getElementById("new-chat").addEventListener("click", async () => {
+    const response = await fetch("/api/chats/new", { method: "POST" });
+    if (!response.ok) return;
+
+    currentChatId = null;
+    document.getElementById("title").textContent = "New Chat";
+    chatContainer.replaceChildren();
+    addMessage("assistant", "Hello! I'm AGEX. How can I help?");
+    await loadChats();
+});
+
+loadChats();
 
 async function readChatStream(response, responseMessage) {
     const reader = response.body.getReader();
@@ -129,12 +309,20 @@ async function readChatStream(response, responseMessage) {
             }
 
             if (event.type === "final") {
-                responseMessage.textContent =
-                    event.response || "AGEX returned an empty response.";
+                responseMessage.textContent = event.response || "AGEX returned an empty response.";
+                if (event.model) {
+                    document.getElementById("model").textContent = event.model;
+                }
             }
 
             if (event.type === "error") {
                 throw new Error(event.error);
+            }
+
+            if (event.type === "chat_created") {
+                currentChatId = event.id;
+                document.getElementById("title").textContent = event.title;
+                loadChats();
             }
         }
 
