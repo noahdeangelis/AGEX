@@ -37,6 +37,43 @@ const chatContainer = document.getElementById("chat");
 let isGenerating = false;
 let currentChatId = null;
 
+async function loadProfileName() {
+    const nameElement = document.getElementById("profile-name");
+
+    try {
+        const response = await fetch("/api/profile");
+        if (!response.ok) return;
+
+        const profile = await response.json();
+
+        if (profile.name) {
+            nameElement.textContent = profile.name;
+            return;
+        }
+
+        const enteredName = prompt("What should AGEX call you?");
+        if (!enteredName?.trim()) return;
+
+        const saveResponse = await fetch("/api/profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: enteredName.trim() }),
+        });
+
+        const savedProfile = await saveResponse.json();
+
+        if (!saveResponse.ok) {
+            throw new Error(savedProfile.error || "Could not save your name.");
+        }
+
+        nameElement.textContent = savedProfile.name;
+    } catch (error) {
+        console.error("Could not load profile name:", error);
+    }
+}
+
+loadProfileName();
+
 async function updateModelTag() {
     const response = await fetch("/api/model");
     if (!response.ok) return;
@@ -151,7 +188,7 @@ async function loadChats() {
                     pendingTools = [];
                 }
             }
-            
+
             await loadChats();
         });
 

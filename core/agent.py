@@ -158,6 +158,7 @@ Analyze the user's intent, plan a minimal and effective execution path, use tool
 </completion>
 
 <info>
+The user's name is: {os.getenv("AGEX_USER_NAME", "Unable to load name error.")}
 The users desktop location is: {user_desktop_dir()}
 The users location is: {get_location()}
 </info>

@@ -28,6 +28,34 @@ CONFIRMATION_LOCK = Lock()
 
 AGENT_LOCK = Lock()
 
+@app.route("/api/profile", methods=["GET"])
+def get_profile():
+    with ENV_LOCK:
+        name = read_env().get("AGEX_USER_NAME", "").strip()
+    return jsonify({"name": name})
+
+
+@app.route("/api/profile", methods=["POST"])
+def save_profile():
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "")
+
+    if not isinstance(name, str):
+        return jsonify({"error": "Name must be text."}), 400
+
+    name = name.strip()
+
+    if not name or len(name) > 40:
+        return jsonify({"error": "Enter a name of 1-40 characters."}), 400
+
+    if any(char in name for char in ("\n", "\r", "\x00")):
+        return jsonify({"error": "Name contains invalid characters."}), 400
+
+    with ENV_LOCK:
+        save_env_value("AGEX_USER_NAME", name)
+
+    return jsonify({"name": name})
+
 @app.route("/api/chats/<int:chat_id>", methods=["DELETE"])
 def delete_chat(chat_id):
     with AGENT_LOCK:
