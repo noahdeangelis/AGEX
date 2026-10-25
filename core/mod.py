@@ -7,7 +7,7 @@ Above your functions you must include:
 
 The name and descirption is given to the ai for guidelines.
 """
-from tools import tool_registry
+from core.tools import tool_registry
 import os
 import ast
 import operator
@@ -21,6 +21,7 @@ import subprocess
 from dotenv import load_dotenv
 import socket
 import time
+import uuid
 
 load_dotenv()
 
@@ -170,6 +171,43 @@ def list_directory(path = "."):
 # Confirm required tools
 #
 def confirm_operation(operation, target, preview, warning=None, auto=False):
+    if auto:
+        return True
+
+    # Use the GUI confirmation system when running in the GUI.
+    if os.getenv("AGEX_INTERFACE") == "gui":
+        from interfaces.gui.gui import (
+            CONFIRMATIONS,
+            CONFIRMATION_LOCK,
+        )
+
+        confirmation_id = uuid.uuid4().hex
+        event = threading.Event()
+
+        confirmation = {
+            "id": confirmation_id,
+            "operation": operation,
+            "target": target,
+            "preview": preview,
+            "warning": warning,
+            "approved": None,
+            "event": event,
+        }
+
+        with CONFIRMATION_LOCK:
+            CONFIRMATIONS[confirmation_id] = confirmation
+
+        try:
+            if not event.wait(timeout=300):
+                return False
+
+            return confirmation["approved"] is True
+
+        finally:
+            with CONFIRMATION_LOCK:
+                CONFIRMATIONS.pop(confirmation_id, None)
+
+    # Original CLI confirmation.
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
@@ -193,14 +231,10 @@ def confirm_operation(operation, target, preview, warning=None, auto=False):
     print(f"{WHITE}{preview}{RESET}")
     print(f"{CYAN}{'─' * 60}{RESET}")
 
-    if not auto:
-        answer = input(
-            f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve  "
-            f"{RED}[n]{RESET} reject: "
-        ).strip().lower()
-    else:
-        print(f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve {RED}[n]{RESET} reject: y (auto)")
-        answer = "y"
+    answer = input(
+        f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve  "
+        f"{RED}[n]{RESET} reject: "
+    ).strip().lower()
 
     if answer in {"y", "yes"}:
         print(f"{GREEN}✓ Approved{RESET}")
@@ -208,6 +242,45 @@ def confirm_operation(operation, target, preview, warning=None, auto=False):
 
     print(f"{RED}✗ Rejected{RESET}")
     return False
+# def confirm_operation(operation, target, preview, warning=None, auto=False):
+#     RESET = "\033[0m"
+#     BOLD = "\033[1m"
+#     DIM = "\033[2m"
+#     BLUE = "\033[38;5;75m"
+#     CYAN = "\033[38;5;109m"
+#     YELLOW = "\033[38;5;221m"
+#     GREEN = "\033[38;5;114m"
+#     RED = "\033[38;5;203m"
+#     WHITE = "\033[38;5;252m"
+
+#     print(f"\n{CYAN}{'─' * 60}{RESET}")
+#     print(f"{BOLD}{WHITE}  AGEX {DIM}›{RESET} {BOLD}{CYAN}{operation}{RESET}")
+#     print(f"{CYAN}{'─' * 60}{RESET}")
+
+#     print(f"{DIM}Target:{RESET} {BLUE}{target}{RESET}")
+
+#     if warning:
+#         print(f"\n{YELLOW}⚠  {warning}{RESET}")
+
+#     print(f"\n{DIM}Preview:{RESET}")
+#     print(f"{WHITE}{preview}{RESET}")
+#     print(f"{CYAN}{'─' * 60}{RESET}")
+
+#     if not auto:
+#         answer = input(
+#             f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve  "
+#             f"{RED}[n]{RESET} reject: "
+#         ).strip().lower()
+#     else:
+#         print(f"{BOLD}Allow operation? {GREEN}[y]{RESET} approve {RED}[n]{RESET} reject: y (auto)")
+#         answer = "y"
+
+#     if answer in {"y", "yes"}:
+#         print(f"{GREEN}✓ Approved{RESET}")
+#         return True
+
+#     print(f"{RED}✗ Rejected{RESET}")
+#     return False
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent

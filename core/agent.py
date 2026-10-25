@@ -2,13 +2,13 @@ import os
 from dotenv import load_dotenv
 import json
 from openai import OpenAI
-from tools import tool_registry
+from core.tools import tool_registry
 import requests
 from platformdirs import user_desktop_dir
 import time
 from openai import APIStatusError
-from tokenizer import count_messages, INPUT_TOKEN_BUDGET
-from chat_storage import ChatStorage
+from core.tokenizer import count_messages, INPUT_TOKEN_BUDGET
+from core.chat_storage import ChatStorage
 
 BLUE = "\033[94m"
 YELLOW = "\033[38;5;221m"

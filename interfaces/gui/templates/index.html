@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGEX</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://googleapis.com">
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
+    <link href="https://googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <aside class="side-bar">
+            <div class="sidebar-brand">
+                <h1>AGEX</h1>
+                <span>AI Agent</span>
+            </div>
+
+            <div class="chat-history" aria-label="Chat History">
+                <button class="history-item active" type="button">How does earth spin?</button>
+                <button class="history-item" type="button">Python Flask setup</button>
+                <button class="history-item" type="button">CSS Grid vs Flexbox</button>
+                <button class="history-item" type="button">Fixing SVG bugs</button>
+            </div>
+
+            <div class="sidebar-spacer"></div>
+
+            <button class="settings-bar" type="button" aria-label="Settings">
+                <span class="profile-details">
+                    <strong>Noah</strong>
+                    <small>AGEX settings</small>
+                </span>
+                <span class="settings-icon" aria-hidden="true">⚙</span> <!--I'm using the character here because it looks really good-->
+            </button>
+        </aside>
+
+        <main class="chatbox">
+            <header class="chat-header">
+                <h2 id="title">New Chat</h2>
+                <small><h3 id="model" class="current-model">Qwen-3.5</h3></small>
+            </header>
+
+            <section id="chat" class="chat" aria-live="polite" aria-label="Conversation">
+                <div class="assistant-response">
+                    <details class="tool-log">
+                        <summary>Used tool: CSS</summary>
+                        <div class="tool-content">
+                            <pre><strong>Args:</strong> { "query": "CSS button styling" }</pre>
+                            <pre><strong>Response:</strong> { "status": "success", "data": [...] }</pre>
+                        </div>
+                    </details>
+
+                    <details class="tool-log">
+                        <summary>Used tool: Calculator</summary>
+                        <div class="tool-content">
+                            <pre><strong>Args:</strong> { "query": "CSS button styling" }</pre>
+                            <pre><strong>Response:</strong> { "status": "success", "data": [...] }</pre>
+                        </div>
+                    </details>
+
+                    <div class="message assistant">Hello! I'm AGEX. How can I help?</div>
+                </div>
+            </section>
+
+            <form id="chat-form" class="chat-form">
+                <input id="message-input" type="text" placeholder="Message AGEX..." autocomplete="off" aria-label="Message AGEX" required>
+                <button type="submit" aria-label="Send message">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="19" x2="12" y2="5"></line>
+                        <polyline points="5 12 12 5 19 12"></polyline>
+                    </svg>
+                </button>
+            </form>
+        </main>
+    </div>
+
+
+    <!-- Settings modal -->
+    <div id="settings-modal" class="settings-modal" hidden>
+        <div class="settings-backdrop" data-close-settings></div>
+
+        <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <header class="settings-header">
+                <div>
+                    <h2 id="settings-title">Settings</h2>
+                    <p>Configure AGEX models and fallbacks.</p>
+                </div>
+                <button type="button" class="settings-close" data-close-settings aria-label="Close settings">&times;</button>
+            </header>
+
+            <form id="settings-form">
+                <div id="settings-error" class="settings-notice error" hidden></div>
+                <div id="settings-success" class="settings-notice success" hidden></div>
+
+                <!-- Primary cloud model -->
+                <section class="settings-section">
+                    <div class="settings-section-heading">
+                        <div>
+                            <h3>Primary model</h3>
+                            <p>Your default cloud model.</p>
+                        </div>
+                        <span class="settings-badge">PRIMARY</span>
+                    </div>
+
+                    <label class="settings-field">
+                        <span>Model name</span>
+                        <input name="primary-model" type="text" placeholder="openai/gpt-oss-120b" required>
+                    </label>
+
+                    <label class="settings-field">
+                        <span>Base URL</span>
+                        <input name="primary-url" type="url" placeholder="https://api.example.com/v1" required>
+                    </label>
+
+                    <label class="settings-field">
+                        <span>API key</span>
+                        <input name="primary-key" type="text" placeholder="Leave blank to keep the existing key" autocomplete="new-password">
+                        <small data-key-status="primary">Checking saved key…</small>
+                    </label>
+                </section>
+
+                <!-- Local model -->
+                <section class="settings-section">
+                    <div class="settings-section-heading">
+                        <div>
+                            <h3>Local model</h3>
+                            <p>Your local OpenAI-compatible server.</p>
+                        </div>
+                        <span class="settings-badge local">LOCAL</span>
+                    </div>
+
+                    <label class="settings-field">
+                        <span>Model name</span>
+                        <input name="local-model" type="text" placeholder="qwen3.5-4b-q5_k_m.gguf">
+                    </label>
+
+                    <label class="settings-field">
+                        <span>Server URL</span>
+                        <input name="local-url" type="url" placeholder="http://localhost:8080/v1">
+                    </label>
+
+                    <label class="settings-toggle">
+                        <input name="local-fallback" type="checkbox">
+                        <span>
+                            <strong>Use local model as final fallback</strong>
+                            <small>Try local inference after cloud models exhaust their usage.</small>
+                        </span>
+                    </label>
+                </section>
+
+                <!-- Backup models -->
+                <section class="settings-section">
+                    <div class="settings-section-heading">
+                        <div>
+                            <h3>Backup models</h3>
+                            <p>Cloud fallbacks, tried in order.</p>
+                        </div>
+                        <span id="backup-count" class="settings-badge">0 BACKUPS</span>
+                    </div>
+
+                    <div id="backup-list"></div>
+
+                    <button type="button" id="add-backup" class="settings-secondary-button">+ Add backup model</button>
+                </section>
+
+                <footer class="settings-footer">
+                    <span>Restart AGEX after saving.</span>
+                    <div>
+                        <button type="button" class="settings-cancel" data-close-settings>Cancel</button>
+                        <button type="submit" id="save-settings" class="settings-save">Save settings</button>
+                    </div>
+                </footer>
+            </form>
+        </section>
+    </div>
+
+    <div id="confirm-modal" class="confirm-modal" hidden>
+        <div class="confirm-backdrop"></div>
+
+        <section class="confirm-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+            <header class="confirm-header">
+                <div>
+                    <p class="confirm-eyebrow">AGEX PERMISSION REQUEST</p>
+                    <h2 id="confirm-title">Confirm operation</h2>
+                </div>
+
+                <span class="confirm-icon">!</span>
+            </header>
+
+            <p id="confirm-warning" class="confirm-warning" hidden></p>
+
+            <div class="confirm-details">
+                <span class="confirm-label">Target</span>
+                <code id="confirm-target"></code>
+            </div>
+
+            <div class="confirm-preview-section">
+                <span class="confirm-label">Preview</span>
+                <pre id="confirm-preview"></pre>
+            </div>
+
+            <footer class="confirm-footer">
+                <button id="confirm-reject" type="button" class="confirm-button reject">Reject</button>
+                <button id="confirm-approve" type="button" class="confirm-button approve">Approve</button>
+            </footer>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

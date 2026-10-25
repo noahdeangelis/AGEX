@@ -6,3 +6,6 @@ ddgs
 platformdirs
 tiktoken
 playwright
+flask
+pywebview[qt]; sys_platform == "linux"
+pywebview; sys_platform == "win32" or sys_platform == "darwin"
