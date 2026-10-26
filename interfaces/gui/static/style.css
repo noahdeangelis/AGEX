@@ -135,7 +135,7 @@ body {
 }
 
 .message {
-    white-space: pre-wrap;
+    /* white-space: pre-wrap; */
     padding: 0;
     margin: 0;
 }
@@ -924,4 +924,91 @@ body.confirm-open {
     .settings-footer button {
         flex: 1;
     }
+}
+
+/* Markdown formatting for the assistant*/
+.message.assistant {
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+
+.message.assistant p {
+    margin: 0 0 0.65rem;
+}
+
+.message.assistant p:last-child {
+    margin-bottom: 0;
+}
+
+.message.assistant h1,
+.message.assistant h2,
+.message.assistant h3,
+.message.assistant h4 {
+    line-height: 1.3;
+    margin: 1rem 0 0.4rem;
+    font-weight: 600;
+}
+
+.message.assistant h1:first-child,
+.message.assistant h2:first-child,
+.message.assistant h3:first-child,
+.message.assistant h4:first-child {
+    margin-top: 0;
+}
+
+.message.assistant ul,
+.message.assistant ol {
+    margin: 0.35rem 0 0.75rem;
+    padding-left: 1.5rem;
+}
+
+.message.assistant li {
+    margin: 0.15rem 0;
+}
+
+.message.assistant li p {
+    margin: 0.2rem 0;
+}
+
+.message.assistant blockquote {
+    margin: 0.5rem 0;
+    padding-left: 0.8rem;
+    border-left: 3px solid #444b5a;
+}
+
+.message.assistant pre {
+    margin: 0.6rem 0;
+    padding: 0.9rem;
+    overflow-x: auto;
+    border-radius: 8px;
+    line-height: 1.45;
+}
+
+.message.assistant code {
+    font-size: 0.9em;
+}
+
+.message.assistant :not(pre) > code {
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    background: #252a35;
+}
+
+.message.assistant table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.6rem 0;
+}
+
+.message.assistant th,
+.message.assistant td {
+    padding: 0.45rem 0.65rem;
+    border: 1px solid #343b49;
+    text-align: left;
+}
+
+.message.assistant hr {
+    margin: 0.8rem 0;
+    border: 0;
+    border-top: 1px solid #343b49;
 }

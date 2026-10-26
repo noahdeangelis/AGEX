@@ -1,3 +1,14 @@
+
+marked.setOptions({
+    gfm: true,
+    breaks: true
+});
+
+function renderMarkdown(text) {
+    const html = marked.parse(String(text ?? ""));
+    return DOMPurify.sanitize(html);
+}
+
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message-input");
 const chat = document.getElementById("chat");
@@ -92,7 +103,12 @@ function addMessage(role, content) {
 
     const message = document.createElement("div");
     message.className = `message ${role}`;
-    message.textContent = content;
+    // message.innerHTML = renderMarkdown(content);
+    if (role === "assistant") {
+        message.innerHTML = renderMarkdown(content);
+    } else {
+        message.textContent = content;
+    }
 
     wrapper.appendChild(message);
     chatContainer.appendChild(wrapper);
@@ -345,12 +361,17 @@ async function readChatStream(response, responseMessage) {
                 responseMessage.textContent = `Error: ${event.error}`;
             }
 
+
             if (event.type === "final") {
-                responseMessage.textContent = event.response || "AGEX returned an empty response.";
+                responseMessage.innerHTML = renderMarkdown(
+                    event.response || "AGEX returned an empty response."
+                );
+
                 if (event.model) {
                     document.getElementById("model").textContent = event.model;
                 }
             }
+
 
             if (event.type === "error") {
                 throw new Error(event.error);
@@ -755,39 +776,5 @@ settingsForm.addEventListener("submit", async event => {
     } finally {
         saveSettingsButton.disabled = false;
         saveSettingsButton.textContent = "Save settings";
-    }
-});
-
-form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    const message = input.value.trim();
-    if (!message) return;
-
-    addMessage(message, "user");
-    input.value = "";
-    input.disabled = true;
-    button.disabled = true;
-
-    try {
-        const response = await fetch("/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message })
-        });
-
-        if (!response.ok) {
-            throw new Error("The server returned an error.");
-        }
-
-        const data = await response.json();
-        addMessage(data.response, "assistant");
-    } catch (error) {
-        addMessage("Sorry, something went wrong.", "assistant");
-        console.error(error);
-    } finally {
-        input.disabled = false;
-        button.disabled = false;
-        input.focus();
     }
 });
