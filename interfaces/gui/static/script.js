@@ -440,7 +440,7 @@ chatForm.addEventListener("submit", async event => {
     }
 
     isGenerating = true;
-    messageInput.disabled = true;
+    button.disabled = true;
 
     addMessage("user", message);
     messageInput.value = "";
@@ -467,7 +467,7 @@ chatForm.addEventListener("submit", async event => {
         responseMessage.textContent = `Error: ${error.message}`;
     } finally {
         isGenerating = false;
-        messageInput.disabled = false;
+        button.disabled = false;
         messageInput.focus();
 
         chatContainer.scrollTop = chatContainer.scrollHeight;

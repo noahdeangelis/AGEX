@@ -42,6 +42,11 @@ body {
     font-size: 13px;
 }
 
+.sidebar-brand {
+    width: 100%;
+    padding-left: 10px;
+}
+
 .sidebar-spacer {
     flex: 1;
 }
@@ -192,6 +197,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.chat-form button:disabled {
+    opacity: 0.6;
+    cursor: progress;
 }
 
 .chat-form button svg {
