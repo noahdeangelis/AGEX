@@ -4,9 +4,51 @@ marked.setOptions({
     breaks: true
 });
 
+
 function renderMarkdown(text) {
-    const html = marked.parse(String(text ?? ""));
-    return DOMPurify.sanitize(html);
+    let source = String(text ?? "");
+    const mathBlocks = [];
+
+    // Protect display and inline LaTeX before Markdown can modify it.
+    source = source.replace(
+        /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$(?!\$)[^\n$]+(?<!\\)\$(?!\$)/g,
+        match => {
+            const index = mathBlocks.length;
+            mathBlocks.push(match);
+            return `MATHPLACEHOLDER${index}END`;
+        }
+    );
+
+    // Parse the remaining Markdown normally.
+    let html = marked.parse(source);
+
+    // Restore the original LaTeX expressions.
+    html = html.replace(
+        /MATHPLACEHOLDER(\d+)END/g,
+        (_, index) => mathBlocks[Number(index)]
+    );
+
+    // Sanitize before rendering the maths.
+    const container = document.createElement("div");
+    container.innerHTML = DOMPurify.sanitize(html);
+
+    if (typeof renderMathInElement === "function") {
+        renderMathInElement(container, {
+            delimiters: [
+                { left: "$$", right: "$$", display: true },
+                { left: "\\[", right: "\\]", display: true },
+                { left: "\\(", right: "\\)", display: false },
+                { left: "$", right: "$", display: false }
+            ],
+            throwOnError: false,
+            ignoredTags: [
+                "script", "noscript", "style", "textarea",
+                "pre", "code"
+            ]
+        });
+    }
+
+    return container.innerHTML;
 }
 
 const form = document.getElementById("chat-form");

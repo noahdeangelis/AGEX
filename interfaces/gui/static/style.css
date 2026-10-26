@@ -4,6 +4,7 @@ html, body {
     margin: 0;
     padding: 0;
     color: #EAE3D2;
+    overflow: hidden;
 }
 
 * {
@@ -1011,4 +1012,20 @@ body.confirm-open {
     margin: 0.8rem 0;
     border: 0;
     border-top: 1px solid #343b49;
+}
+
+/* Katex design */
+.message.assistant .katex-display {
+    margin: 0.8rem 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25rem 0;
+}
+
+.message.assistant .katex {
+    font-size: 1.05em;
+}
+
+.message.assistant .katex-display > .katex {
+    white-space: normal;
 }
