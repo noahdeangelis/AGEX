@@ -568,6 +568,53 @@ def stop_dev_server(port: int = 8000) -> str:
     except Exception as e:
         return f"Failed to stop development server on port {port}: {e}"
 
+
+
+SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
+def read_skill_file(skill_file):
+    text = skill_file.read_text(encoding="utf-8")
+
+    if not text.startswith("---\n"):
+        return {}, ""
+
+    parts = text.split("---", 2)
+    if len(parts) != 3:
+        return {}, ""
+
+    metadata = {}
+    for line in parts[1].splitlines():
+        key, separator, value = line.partition(":")
+        if separator:
+            metadata[key.strip()] = value.strip()
+
+    return metadata, parts[2].strip()
+
+
+@tool_registry.register("load_skill", "Load a skill's full instructions by its name or folder name. Use this when a listed skill is relevant to the user's request.")
+def load_skill(name: str):
+    requested_name = name.strip().casefold()
+
+    if not requested_name:
+        return "Please provide a skill name."
+
+    for skill_file in sorted(SKILLS_DIR.glob("*/SKILL.md")):
+        metadata, instructions = read_skill_file(skill_file)
+        skill_name = metadata.get("name", skill_file.parent.name)
+
+        if requested_name in {skill_name.casefold(), skill_file.parent.name.casefold()}:
+            if not instructions:
+                return f"Skill '{skill_name}' has no instructions."
+
+            description = metadata.get("description", "")
+            return (
+                f"Skill: {skill_name}\n"
+                f"Description: {description}\n\n"
+                f"Instructions:\n{instructions}"
+            )
+
+    return f"Skill '{name}' was not found."
+
+# TODO: Playwright may be able to convert over to a skill which was premade?
 #
 # I embarrasingly had ChatGPT port over the tools for playwright as I lack experience with it.
 # TODO: Have a HUMAN write the tools nicely and better

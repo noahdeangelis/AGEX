@@ -9,11 +9,48 @@ import time
 from openai import APIStatusError
 from core.tokenizer import count_messages, INPUT_TOKEN_BUDGET
 from core.chat_storage import ChatStorage
+from pathlib import Path
+
+# At some point I gave up on type specifications because it was consuming a bit too much time and wasn't necessary
+# TODO: Convert rest of code to type seepcifications
 
 BLUE = "\033[94m"
 YELLOW = "\033[38;5;221m"
 RED = "\033[38;5;203m"
 RESET = "\033[0m"
+
+SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
+
+def load_skill_set():
+    entries = []
+
+    if not SKILLS_DIR.exists():
+        return "No skills are currently installed."
+
+    for skill_file in sorted(SKILLS_DIR.glob("*/SKILL.md")):
+        text = skill_file.read_text(encoding="utf-8")
+
+        if not text.startswith("---\n"):
+            continue
+
+        _, frontmatter, _ = text.split("---", 2)
+        metadata = {}
+
+        for line in frontmatter.splitlines():
+            key, separator, value = line.partition(":")
+            if separator:
+                metadata[key.strip()] = value.strip()
+
+        name = metadata.get("name", skill_file.parent.name)
+        description = metadata.get("description", "").strip()
+
+        if description:
+            entries.append(f"- {name}: {description}")
+
+    return "\n".join(entries) or "No skills are currently installed."
+
+
+SKILLS = load_skill_set()
 
 def is_tpm_rpm_limit(error_text):
     is_tpm = ("tokens per minute" in error_text or "token per minute" in error_text)
@@ -156,6 +193,20 @@ Analyze the user's intent, plan a minimal and effective execution path, use tool
 - Continue using tools until the user's request has actually been completed.
 - Your response should accomodate the current request based off any previous context, but should not reapeat the last response.
 </completion>
+
+<skill_rules>
+- Mandatory Execution: If a skill matches or complies with the user's request, you MUST use it. Do not bypass available skills to write manual responses when a dedicated skill exists.
+- Intent Matching: Evaluate the user's prompt against the descriptions and triggers of all available skills. Choose the most specific and appropriate skill for the task.
+- Precision: Only invoke a skill if the user's intent clearly aligns with its intended use case. Do not force irrelevant skills.
+- Parameter Mapping: Extract required parameters accurately from the conversation history and user prompt to pass into the skill.
+- Silent Operation: Execute skill calls cleanly. Never break character or explain the internal mechanics of skill routing to the user unless explicitly asked.
+- Missing Information: If a skill requires mandatory parameters that the user has not provided, ask a targeted clarifying question before executing the skill rather than guessing blindly.
+- Skill Failure: If a skill fails or encounters an error, gracefully fall back to alternative reasoning or offer a helpful manual workaround.
+</skill_rules>
+
+<available_skills>
+{SKILLS}
+</available_skills>
 
 <info>
 The user's name is: {os.getenv("AGEX_USER_NAME", "Unable to load name error.")}
