@@ -132,8 +132,44 @@ async function updateModelTag() {
     if (!response.ok) return;
 
     const data = await response.json();
-    document.getElementById("model").textContent = data.model;
+    const select = document.getElementById("model-select");
+
+    select.replaceChildren();
+
+    for (const model of data.models) {
+        const option = document.createElement("option");
+        option.value = model.key;
+        option.textContent = `${model.label}: ${model.model}`;
+        select.appendChild(option);
+    }
+
+    select.value = data.active_key;
+    const active = data.models.find(model => model.key === data.active_key);
+
+    // if (active) {
+    //     document.getElementById("model").textContent = active.model;
+    // }
 }
+
+document.getElementById("model-select").addEventListener("change", async event => {
+    const key = event.target.value;
+
+    const response = await fetch("/api/model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        console.error(data.error || "Could not switch models.");
+        await updateModelTag();
+        return;
+    }
+
+    document.getElementById("model").textContent = data.model;
+});
 
 updateModelTag();
 
@@ -410,7 +446,8 @@ async function readChatStream(response, responseMessage) {
                 );
 
                 if (event.model) {
-                    document.getElementById("model").textContent = event.model;
+                    // document.getElementById("model").textContent = event.model;
+                    updateModelTag();
                 }
             }
 

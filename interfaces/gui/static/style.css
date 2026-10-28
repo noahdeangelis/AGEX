@@ -116,6 +116,72 @@ body {
     font-size: 18px;
 }
 
+@supports (appearance: base-select) {
+
+    .chat-header select, .chat-header select::picker(select) {
+        appearance: base-select;
+    }
+
+    .chat-header select {
+        color: #b9b9b9;
+        background: transparent;
+        font-family: inherit;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        margin-left: 24px;
+        cursor: pointer;
+    }
+
+    .chat-header select::picker-icon {
+        content: ">"; 
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transform-origin: center center;
+        font-weight: 600;
+        margin-left: -2px;
+        margin-top: -5px;
+        color: #b9b9b9;
+        transition: transform 0.2s ease;
+    }
+
+    .chat-header select::picker-icon {
+        transition: transform 0.2s ease;
+    }
+
+    .chat-header select:open::picker-icon {
+        transform: rotate(90deg);
+    }
+
+    .chat-header select::picker(select) {
+        border: 0;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        background-color: #2e2e2e;
+        color: #FFF;
+        padding: 6px 0;
+    }
+
+    .chat-header select option {
+        padding: 5px 8px;
+        cursor: pointer;
+    }
+
+    .chat-header select option:hover {
+        background-color: #3a3a3a;
+    }
+
+    .chat-header select option:checked {
+        background-color: #404040;
+    }
+
+    .chat-header select option::checkmark {
+        color: #9b9b9b;
+    }
+}
+
+
 .chat,
 .chat-form {
     margin-left: 24px;
@@ -400,13 +466,13 @@ body {
     /* Spacing between args and response lines */
 }
 
-.current-model {
+/* .current-model {
     color: #b9b9b9;
     font-size: 12px;
     padding: 0;
     margin: 0;
     margin-left: 24px;
-}
+} */
 
 @media (max-width: 600px) {
     .app {

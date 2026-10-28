@@ -26,6 +26,8 @@ ENV_LOCK = threading.Lock()
 CONFIRMATIONS = {}
 CONFIRMATION_LOCK = Lock()
 
+LOCAL_MODEL_SELECTED = False
+
 AGENT_LOCK = Lock()
 
 @app.route("/api/profile", methods=["GET"])
@@ -73,11 +75,11 @@ def delete_chat(chat_id):
 
     return jsonify({"success": True})
 
-@app.route("/api/model", methods=["GET"])
-def get_active_model():
-    with AGENT_LOCK:
-        model = agent.model_configs[agent.current_model]["model"]
-    return jsonify({"model": model})
+# @app.route("/api/model", methods=["GET"])
+# def get_active_model():
+#     with AGENT_LOCK:
+#         model = agent.model_configs[agent.current_model]["model"]
+#     return jsonify({"model": model})
 
 @app.route("/api/confirm", methods=["GET"])
 def get_confirmation():
@@ -128,7 +130,6 @@ def read_env():
         if value is not None
     }
 
-
 def save_env_value(key, value):
     """Update or remove an entry in .env."""
     if value is None:
@@ -136,6 +137,76 @@ def save_env_value(key, value):
     else:
         set_key(str(ENV_FILE), key, str(value), quote_mode="always")
 
+@app.route("/api/model", methods=["GET", "POST"])
+def manage_model():
+    global LOCAL_MODEL_SELECTED
+
+    if request.method == "GET":
+        with AGENT_LOCK:
+            models = []
+
+            for index, config in enumerate(agent.model_configs):
+                # Local appears once, as its own dropdown option.
+                if config["is_local"]:
+                    continue
+
+                label = "P" if config["is_primary"] else f"B{config['backup_no']}"
+                models.append({
+                    "key": f"cloud:{index}",
+                    "label": label,
+                    "model": config["model"],
+                })
+
+            active_config = agent.model_configs[agent.current_model]
+            active_key = (
+                "local"
+                if LOCAL_MODEL_SELECTED or active_config["is_local"]
+                else f"cloud:{agent.current_model}"
+            )
+
+            local_name = agent.local
+            local_url = agent.local_url
+
+        if local_name and local_url:
+            models.append({
+                "key": "local",
+                "label": "L",
+                "model": local_name,
+            })
+
+        return jsonify({"models": models, "active_key": active_key})
+
+    data = request.get_json(silent=True) or {}
+    key = data.get("key")
+
+    with AGENT_LOCK:
+        if key == "local":
+            if not agent.local or not agent.local_url or not hasattr(agent, "local_client"):
+                return jsonify({"error": "Local model is not configured."}), 400
+
+            LOCAL_MODEL_SELECTED = True
+            return jsonify({"model": agent.local, "key": "local"})
+
+        if not isinstance(key, str) or not key.startswith("cloud:"):
+            return jsonify({"error": "Choose a valid model."}), 400
+
+        try:
+            index = int(key.removeprefix("cloud:"))
+        except ValueError:
+            return jsonify({"error": "Choose a valid model."}), 400
+
+        if not 0 <= index < len(agent.model_configs):
+            return jsonify({"error": "Model not found."}), 404
+
+        config = agent.model_configs[index]
+        if config["is_local"]:
+            return jsonify({"error": "Choose a valid cloud model."}), 400
+
+        agent.current_model = index
+        agent.client = config["client"]
+        LOCAL_MODEL_SELECTED = False
+
+        return jsonify({"model": config["model"], "key": key})
 
 def get_backup_numbers(env):
     """Get all configured backup numbers."""
@@ -305,8 +376,39 @@ def chat():
                         "id": agent.chat_id,
                         "title": title,
                     })
-                response = agent.chat(message, on_tool_event=events.put)
-                active_model = agent.model_configs[agent.current_model]["model"]
+                # response = agent.chat(message, on_tool_event=events.put)
+                # Temp adds local model to the config and then removes it.
+                # If the local model is left in the config it will act like a backup
+                # TODO: Add a graceful method of adding non backup local models
+                if LOCAL_MODEL_SELECTED:
+                    original_configs = agent.model_configs
+                    original_index = agent.current_model
+                    original_client = agent.client
+
+                    local_config = {
+                        "name": agent.local,
+                        "model": agent.local,
+                        "client": agent.local_client,
+                        "is_primary": True,
+                        "is_local": True,
+                        "is_backup": False,
+                        "backup_no": None,
+                    }
+
+                    try:
+                        agent.model_configs = [local_config]
+                        agent.current_model = 0
+                        agent.client = agent.local_client
+                        response = agent.chat(message, on_tool_event=events.put)
+                        active_model = agent.local
+                    finally:
+                        agent.model_configs = original_configs
+                        agent.current_model = original_index
+                        agent.client = original_client
+                else:
+                    response = agent.chat(message, on_tool_event=events.put)
+                    active_model = agent.model_configs[agent.current_model]["model"]
+                # active_model = agent.model_configs[agent.current_model]["model"]
 
             events.put({"type": "final", "response": response or "", "model": active_model})
         except Exception as error:
