@@ -90,6 +90,13 @@ const chatContainer = document.getElementById("chat");
 let isGenerating = false;
 let currentChatId = null;
 
+button.addEventListener("click", event => {
+    if (!isGenerating) return;
+
+    event.preventDefault();
+    fetch("/api/stop", { method: "POST" }).catch(console.error);
+});
+
 async function loadProfileName() {
     const nameElement = document.getElementById("profile-name");
 
@@ -476,8 +483,17 @@ chatForm.addEventListener("submit", async event => {
         return;
     }
 
+    // isGenerating = true;
+    // button.disabled = true;
+
     isGenerating = true;
-    button.disabled = true;
+
+    button.setAttribute("aria-label", "Stop generating");
+    button.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="1"></rect>
+        </svg>
+    `;
 
     addMessage("user", message);
     messageInput.value = "";
@@ -501,12 +517,24 @@ chatForm.addEventListener("submit", async event => {
         await readChatStream(response, responseMessage);
 
     } catch (error) {
-        responseMessage.textContent = `Error: ${error.message}`;
+        if (error.name === "AbortError") {
+            responseMessage.textContent = "Stopped.";
+        } else {
+            responseMessage.textContent = `Error: ${error.message}`;
+        }
     } finally {
         isGenerating = false;
-        button.disabled = false;
-        messageInput.focus();
 
+        button.setAttribute("aria-label", "Send message");
+        button.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"></line>
+                <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
+        `;
+
+        messageInput.focus();
         chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 });

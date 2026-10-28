@@ -448,7 +448,7 @@ class AIAgent:
                 raise # Unhandled error
         raise RuntimeError("No model returned a response.") # Just in case
 
-    def chat(self, user_message: str, on_tool_event=None):
+    def chat(self, user_message: str, on_tool_event=None, stop_event=None):
         """
         Send a message to the AI agent and get a response.
         The agent will decide whether to use tools or respond directly.
@@ -456,8 +456,18 @@ class AIAgent:
         # TODO: Implement streaming
         self._append_history({"role": "user", "content": user_message})
 
+        def stop_if_requested():
+            if stop_event is not None and stop_event.is_set():
+                text = "Generation stopped."
+                self._append_history({"role": "assistant", "content": text})
+                return text
+            return None
+
         while True:
             # Will get the response and auto switch from Primary to Backup or to Local
+            stopped = stop_if_requested()
+            if stopped is not None:
+                return stopped
 
             tools = tool_registry.get_schemas()
 
@@ -471,6 +481,10 @@ class AIAgent:
                     tool_choice="auto",
                     temperature=0.2,
                 )
+
+                stopped = stop_if_requested()
+                if stopped is not None:
+                    return stopped
 
             
             except ValueError as e:

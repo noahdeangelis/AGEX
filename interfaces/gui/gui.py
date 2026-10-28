@@ -30,6 +30,18 @@ LOCAL_MODEL_SELECTED = False
 
 AGENT_LOCK = Lock()
 
+STOP_EVENT_LOCK = Lock()
+CURRENT_STOP_EVENT = None
+
+@app.route("/api/stop", methods=["POST"])
+def stop_chat():
+    with STOP_EVENT_LOCK:
+        if CURRENT_STOP_EVENT is None:
+            return jsonify({"stopped": False}), 409
+        CURRENT_STOP_EVENT.set()
+
+    return jsonify({"stopped": True})
+
 @app.route("/api/profile", methods=["GET"])
 def get_profile():
     with ENV_LOCK:
@@ -365,6 +377,12 @@ def chat():
 
     events = queue.Queue()
 
+    global CURRENT_STOP_EVENT
+
+    stop_event = Event()
+    with STOP_EVENT_LOCK:
+        CURRENT_STOP_EVENT = stop_event
+
     def run_agent():
         try:
             with AGENT_LOCK:
@@ -399,14 +417,14 @@ def chat():
                         agent.model_configs = [local_config]
                         agent.current_model = 0
                         agent.client = agent.local_client
-                        response = agent.chat(message, on_tool_event=events.put)
+                        response = agent.chat(message, on_tool_event=events.put, stop_event=stop_event)
                         active_model = agent.local
                     finally:
                         agent.model_configs = original_configs
                         agent.current_model = original_index
                         agent.client = original_client
                 else:
-                    response = agent.chat(message, on_tool_event=events.put)
+                    response = agent.chat(message, on_tool_event=events.put, stop_event=stop_event)
                     active_model = agent.model_configs[agent.current_model]["model"]
                 # active_model = agent.model_configs[agent.current_model]["model"]
 
@@ -414,6 +432,12 @@ def chat():
         except Exception as error:
             events.put({"type": "error", "error": f"{type(error).__name__}: {error}"})
         finally:
+            global CURRENT_STOP_EVENT
+
+            with STOP_EVENT_LOCK:
+                if CURRENT_STOP_EVENT is stop_event:
+                    CURRENT_STOP_EVENT = None
+
             events.put(None)
 
     def generate_events():
